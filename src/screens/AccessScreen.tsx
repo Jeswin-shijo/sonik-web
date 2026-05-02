@@ -1,51 +1,80 @@
 import { CredentialResponse, GoogleLogin } from '@react-oauth/google';
 import { ReactNode } from 'react';
 import { googleClientId } from '../config';
-import type { AuthView, MusicTrack } from '../types';
-import { TrackArtwork } from '../components/TrackArtwork';
+import type { AuthView, ThemeMode } from '../types';
+import { ThemeToggle } from '../components/ThemeToggle';
+
+function SonikSignal() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="sonik-signal"
+      fill="none"
+      viewBox="0 0 320 320"
+    >
+      <defs>
+        <linearGradient id="sonikSignalGradient" x1="54" x2="266" y1="54" y2="266">
+          <stop stopColor="var(--gold)" />
+          <stop offset="0.52" stopColor="var(--coral)" />
+          <stop offset="1" stopColor="var(--violet)" />
+        </linearGradient>
+      </defs>
+      <circle className="signal-ring signal-ring-one" cx="160" cy="160" r="116" />
+      <circle className="signal-ring signal-ring-two" cx="160" cy="160" r="82" />
+      <path
+        className="signal-wave signal-wave-back"
+        d="M72 176c27-45 52-45 78 0s51 45 78 0 39-45 52 0"
+      />
+      <path
+        className="signal-wave"
+        d="M52 144c35-58 69-58 102 0s67 58 102 0"
+      />
+      <circle className="signal-core" cx="160" cy="160" r="54" />
+      <text className="signal-letter" x="160" y="177" textAnchor="middle">
+        S
+      </text>
+      <circle className="signal-dot signal-dot-one" cx="86" cy="96" r="7" />
+      <circle className="signal-dot signal-dot-two" cx="244" cy="224" r="6" />
+    </svg>
+  );
+}
 
 export function AccessScreen({
   view,
-  tracks,
-  selectedTrack,
   activeForm,
   errorMessage,
   noticeMessage,
-  onSelectTrack,
   onViewChange,
   onClearFeedback,
   onGoogleSuccess,
   onGoogleError,
+  themeMode,
+  onThemeToggle,
 }: {
   view: AuthView;
-  tracks: MusicTrack[];
-  selectedTrack: MusicTrack;
   activeForm: ReactNode;
   errorMessage: string;
   noticeMessage: string;
-  onSelectTrack: (trackId: string) => void;
   onViewChange: (view: AuthView) => void;
   onClearFeedback: () => void;
   onGoogleSuccess: (credentialResponse: CredentialResponse) => void;
   onGoogleError: () => void;
+  themeMode: ThemeMode;
+  onThemeToggle: () => void;
 }) {
   const authTitle =
     view === 'login'
       ? 'Sign in to Sonik'
-      : view === 'register'
+      : view === 'register-otp'
         ? 'Create your account'
-        : view === 'forgot'
-          ? 'Reset your password'
-          : 'Choose a new password';
+        : 'Reset your password';
 
   const authCopy =
     view === 'login'
       ? 'Your library, playlists, and playback stay in sync.'
-      : view === 'register'
-        ? 'Start with a clean music workspace built around your taste.'
-        : view === 'forgot'
-          ? 'We will send a secure reset link if the email is registered.'
-          : 'Finish the reset and return to your music.';
+      : view === 'register-otp'
+        ? 'Verify your email with a one-time code, then choose a password.'
+        : 'We will send a code to your email if the account exists.';
 
   return (
     <main className="access-shell">
@@ -55,46 +84,31 @@ export function AccessScreen({
             <span className="brand-mark">S</span>
             <span>Sonik</span>
           </a>
-          <span className="preview-pill">Web player</span>
+        <div className="auth-toolbar">
+          <ThemeToggle themeMode={themeMode} onToggle={onThemeToggle} />
+        </div>
         </div>
 
         <section className="preview-player">
-          <TrackArtwork track={selectedTrack} className="preview-art" />
+          <div className="sonik-signal-wrap">
+            <SonikSignal />
+          </div>
           <div className="preview-copy">
             <p className="section-kicker">Featured mix</p>
             <h1>Music that keeps moving with you.</h1>
             <p>Browse, collect, and play your favorite tracks from one account.</p>
           </div>
         </section>
-
-        <div className="preview-list">
-          {tracks.slice(0, 3).map((track) => (
-            <button
-              className={`queue-item ${
-                selectedTrack.id === track.id ? 'is-selected' : ''
-              }`}
-              key={track.id}
-              onClick={() => onSelectTrack(track.id)}
-              type="button"
-            >
-              <TrackArtwork track={track} className="row-art" />
-              <span>
-                <strong>{track.title}</strong>
-                <small>{track.artist}</small>
-              </span>
-            </button>
-          ))}
-        </div>
       </section>
 
       <section className="auth-panel" aria-labelledby="auth-title">
-        <div className="auth-tabs" role="tablist" aria-label="Account options">
+
+<div className="auth-tabs" role="tablist" aria-label="Account options">
           {[
             ['login', 'Sign in'],
-            ['register', 'Create'],
-            ['forgot', 'Reset'],
+            ['register-otp', 'Create'],
           ].map(([value, label]) => (
-            <button
+<button
               aria-selected={view === value}
               className={`tab-button ${view === value ? 'is-active' : ''}`}
               key={value}
@@ -123,7 +137,48 @@ export function AccessScreen({
 
         {activeForm}
 
-        {view !== 'forgot' && view !== 'reset' && googleClientId ? (
+        {view === 'login' ? (
+          <div className="auth-links">
+            <button
+              className="text-action"
+              onClick={() => {
+                onClearFeedback();
+                onViewChange('forgot-otp');
+              }}
+              type="button"
+            >
+              Forgot password?
+            </button>
+            <span className="auth-link-row">
+              Don&apos;t have an account?{' '}
+              <button
+                className="text-action inline"
+                onClick={() => {
+                  onClearFeedback();
+                  onViewChange('register-otp');
+                }}
+                type="button"
+              >
+                Create one
+              </button>
+            </span>
+          </div>
+        ) : null}
+
+        {view === 'forgot-otp' ? (
+          <button
+            className="text-action"
+            onClick={() => {
+              onClearFeedback();
+              onViewChange('login');
+            }}
+            type="button"
+          >
+            Back to sign in
+          </button>
+        ) : null}
+
+        {view === 'login' && googleClientId ? (
           <>
             <div className="divider">
               <span>or</span>
@@ -133,24 +188,11 @@ export function AccessScreen({
                 onSuccess={onGoogleSuccess}
                 onError={onGoogleError}
                 theme="filled_black"
-                text={view === 'register' ? 'signup_with' : 'signin_with'}
+                text="signin_with"
                 shape="pill"
               />
             </div>
           </>
-        ) : null}
-
-        {view === 'forgot' ? (
-          <button
-            className="text-action"
-            onClick={() => {
-              onClearFeedback();
-              onViewChange('reset');
-            }}
-            type="button"
-          >
-            I already have a reset code
-          </button>
         ) : null}
       </section>
     </main>

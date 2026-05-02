@@ -1,11 +1,21 @@
-import { FormEvent, RefObject } from 'react';
+import { RefObject, useState } from 'react';
 import { apiBaseUrl } from '../config';
-import { mixes } from '../data/mixes';
+import { usePrompt } from '../components/ConfirmDialog';
 import { formatSeconds, getDurationLabel, isUsableDuration } from '../helpers/time';
-import type { MusicTrack, PlaylistSummary, RepeatMode, SessionState } from '../types';
+import type {
+  MusicTrack,
+  AlbumSummary,
+  ArtistSummary,
+  PlaylistSummary,
+  QueueItemSummary,
+  RepeatMode,
+  SessionState,
+  ThemeMode,
+} from '../types';
 import { ActionIcon } from '../components/ActionIcon';
 import { IconButton } from '../components/IconButton';
 import { PlayerControls } from '../components/PlayerControls';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { TrackArtwork } from '../components/TrackArtwork';
 
 export function MusicPlayer({
@@ -14,9 +24,12 @@ export function MusicPlayer({
   tracks,
   favoriteTrackIds,
   playlists,
+  artists,
+  albums,
+  queueItems,
   selectedPlaylistId,
+  selectedSourceLabel,
   addToPlaylistId,
-  playlistName,
   searchQuery,
   durationByTrackId,
   selectedTrack,
@@ -30,13 +43,18 @@ export function MusicPlayer({
   volume,
   onSelectTrack,
   onSelectPlaylist,
-  onPlaylistNameChange,
+  onSelectArtist,
+  onSelectAlbum,
   onSearchChange,
   onAddToPlaylistTargetChange,
   onCreatePlaylist,
   onAddToPlaylist,
+  onSaveTrackToPlaylist,
   onRemoveFromPlaylist,
   onToggleFavorite,
+  onPlayNext,
+  onAddToQueue,
+  onShareTrack,
   onProgressChange,
   onPlayToggle,
   onNext,
@@ -46,17 +64,24 @@ export function MusicPlayer({
   onVolumeChange,
   onLoadedMetadata,
   onTimeUpdate,
-  onEnded,
+onEnded,
   onLogout,
+  onDeleteAccount,
+  onOpenAdmin,
+  themeMode,
+  onThemeToggle,
 }: {
   session: SessionState;
   audioRef: RefObject<HTMLAudioElement | null>;
   tracks: MusicTrack[];
   favoriteTrackIds: string[];
   playlists: PlaylistSummary[];
+  artists: ArtistSummary[];
+  albums: AlbumSummary[];
+  queueItems: QueueItemSummary[];
   selectedPlaylistId: string;
+  selectedSourceLabel: string;
   addToPlaylistId: string;
-  playlistName: string;
   searchQuery: string;
   durationByTrackId: Record<string, string>;
   selectedTrack: MusicTrack;
@@ -70,13 +95,18 @@ export function MusicPlayer({
   volume: number;
   onSelectTrack: (trackId: string) => void;
   onSelectPlaylist: (playlistId: string) => void;
-  onPlaylistNameChange: (name: string) => void;
+  onSelectArtist: (artistId: string) => void;
+  onSelectAlbum: (albumId: string) => void;
   onSearchChange: (query: string) => void;
   onAddToPlaylistTargetChange: (playlistId: string) => void;
-  onCreatePlaylist: (event: FormEvent<HTMLFormElement>) => void;
+  onCreatePlaylist: (name: string) => void;
   onAddToPlaylist: () => void;
+  onSaveTrackToPlaylist: (trackId: string, playlistId?: string) => void;
   onRemoveFromPlaylist: (playlistId: string, trackId: string) => void;
   onToggleFavorite: (trackId: string) => void;
+  onPlayNext: (trackId: string) => void;
+  onAddToQueue: (trackId: string) => void;
+  onShareTrack: (track: MusicTrack) => void;
   onProgressChange: (value: number) => void;
   onPlayToggle: () => void;
   onNext: () => void;
@@ -86,12 +116,34 @@ export function MusicPlayer({
   onVolumeChange: (value: number) => void;
   onLoadedMetadata: () => void;
   onTimeUpdate: () => void;
-  onEnded: () => void;
+onEnded: () => void;
   onLogout: () => void;
+  onDeleteAccount: () => void;
+  onOpenAdmin: () => void;
+  themeMode: ThemeMode;
+  onThemeToggle: () => void;
 }) {
+  const [openMenuTrackId, setOpenMenuTrackId] = useState('');
+  const [menuPlaylistIdByTrackId, setMenuPlaylistIdByTrackId] = useState<
+    Record<string, string>
+  >({});
+  const prompt = usePrompt();
   const audioSource = selectedTrack.streamUrl
     ? `${apiBaseUrl}${selectedTrack.streamUrl}`
     : undefined;
+
+  async function handleCreatePlaylist() {
+    const name = await prompt({
+      title: 'New playlist',
+      message: 'Give your playlist a name. You can rename it later.',
+      placeholder: 'e.g. Late night drives',
+      confirmLabel: 'Create',
+      maxLength: 80,
+    });
+    if (name) {
+      onCreatePlaylist(name);
+    }
+  }
   const selectedPlaylist = playlists.find(
     (playlist) => playlist.id === selectedPlaylistId,
   );
@@ -110,11 +162,7 @@ export function MusicPlayer({
   const likedPercent = tracks.length
     ? Math.round((favoriteTrackIds.length / tracks.length) * 100)
     : 0;
-  const trackSourceLabel = selectedPlaylist
-    ? selectedPlaylist.name
-    : isFavorite
-      ? 'Liked Songs'
-      : 'Library';
+  const queuedTracks = queueItems.map((queueItem) => queueItem.track);
 
   return (
     <div className="player-shell">
@@ -139,10 +187,12 @@ export function MusicPlayer({
           <input
             aria-label="Search songs, artists, albums, or moods"
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search songs, artists, moods"
+            placeholder="Search songs, artists, albums"
             value={searchQuery}
           />
         </label>
+
+        <ThemeToggle themeMode={themeMode} onToggle={onThemeToggle} />
 
         <div className="account-menu">
           <span className="avatar">{session.user.profileName.charAt(0).toUpperCase()}</span>
@@ -218,18 +268,16 @@ export function MusicPlayer({
           ))}
         </section>
 
-        <form className="playlist-create" onSubmit={onCreatePlaylist}>
-          <input
-            aria-label="Playlist name"
-            onChange={(event) => onPlaylistNameChange(event.target.value)}
-            placeholder="New playlist"
-            value={playlistName}
-          />
-          <button type="submit">
+        <div className="playlist-create">
+          <button
+            className="playlist-create-trigger"
+            onClick={handleCreatePlaylist}
+            type="button"
+          >
             <ActionIcon name="plus" />
-            Create
+            Create playlist
           </button>
-        </form>
+        </div>
 
         <section className="pulse-card">
           <p className="section-kicker">Library pulse</p>
@@ -252,7 +300,7 @@ export function MusicPlayer({
           </div>
 
           <div className="deck-copy">
-            <p className="section-kicker">Playing from {trackSourceLabel}</p>
+            <p className="section-kicker">Playing from {selectedSourceLabel}</p>
             <h1 id="hero-title">{selectedTrack.title}</h1>
             <p>
               {selectedTrack.artist} - {selectedTrack.album}
@@ -312,23 +360,86 @@ export function MusicPlayer({
           </div>
         </section>
 
-        <section className="content-section" aria-labelledby="mixes-heading">
-          <div className="section-heading">
-            <h2 id="mixes-heading">Signal blends</h2>
-            <button type="button">Refresh</button>
-          </div>
-          <div className="mix-grid">
-            {mixes.map((mix) => (
-              <article className="mix-card" key={mix.title}>
-                <TrackArtwork
-                  track={{ title: mix.title, coverClass: mix.coverClass }}
-                />
-                <h3>{mix.title}</h3>
-                <p>{mix.detail}</p>
-              </article>
-            ))}
-          </div>
-        </section>
+        {artists.length ? (
+          <section className="content-section" aria-labelledby="artists-heading">
+            <div className="section-heading">
+              <h2 id="artists-heading">Artists</h2>
+              <span className="section-count">
+                {artists.length} {artists.length === 1 ? 'artist' : 'artists'}
+              </span>
+            </div>
+            <div className="mix-grid">
+              {artists.map((artist) => {
+                const isActive = selectedPlaylistId === `artist:${artist.id}`;
+                const sampleTrack = artist.tracks[0];
+                return (
+                  <button
+                    aria-pressed={isActive}
+                    className={`mix-card${isActive ? ' is-active' : ''}`}
+                    key={artist.id}
+                    onClick={() => onSelectArtist(artist.id)}
+                    type="button"
+                  >
+                    <TrackArtwork
+                      track={{
+                        title: artist.name,
+                        coverClass: sampleTrack?.coverClass ?? 'cover-velvet',
+                        coverUrl: sampleTrack?.coverUrl ?? null,
+                      }}
+                    />
+                    <h3>{artist.name}</h3>
+                    <p>
+                      {artist.trackCount}{' '}
+                      {artist.trackCount === 1 ? 'track' : 'tracks'} ·{' '}
+                      {artist.albumCount}{' '}
+                      {artist.albumCount === 1 ? 'album' : 'albums'}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {albums.length ? (
+          <section className="content-section" aria-labelledby="albums-heading">
+            <div className="section-heading">
+              <h2 id="albums-heading">Albums</h2>
+              <span className="section-count">
+                {albums.length} {albums.length === 1 ? 'album' : 'albums'}
+              </span>
+            </div>
+            <div className="mix-grid">
+              {albums.map((album) => {
+                const isActive = selectedPlaylistId === `album:${album.id}`;
+                const sampleTrack = album.tracks[0];
+                return (
+                  <button
+                    aria-pressed={isActive}
+                    className={`mix-card${isActive ? ' is-active' : ''}`}
+                    key={album.id}
+                    onClick={() => onSelectAlbum(album.id)}
+                    type="button"
+                  >
+                    <TrackArtwork
+                      track={{
+                        title: album.title,
+                        coverClass: sampleTrack?.coverClass ?? 'cover-summer',
+                        coverUrl: sampleTrack?.coverUrl ?? null,
+                      }}
+                    />
+                    <h3>{album.title}</h3>
+                    <p>
+                      {album.artist} ·{' '}
+                      {album.trackCount}{' '}
+                      {album.trackCount === 1 ? 'track' : 'tracks'}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <section className="content-section" aria-labelledby="tracks-heading">
           <div className="section-heading">
@@ -336,22 +447,37 @@ export function MusicPlayer({
             <button type="button">{tracks.length} tracks</button>
           </div>
           <div className="track-table">
-            {tracks.map((track, index) => (
-              <div
-                className={`track-row ${
-                  selectedTrackId === track.id ? 'is-selected' : ''
-                }`}
-                key={track.id}
-                onClick={() => onSelectTrack(track.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onSelectTrack(track.id);
-                  }
-                }}
-                role="button"
-                tabIndex={0}
-              >
+            {tracks.map((track, index) => {
+              const menuPlaylistId =
+                menuPlaylistIdByTrackId[track.id] ??
+                addToPlaylistId ??
+                playlists[0]?.id ??
+                '';
+              const artist = artists.find(
+                (candidate) => candidate.name === track.artist,
+              );
+              const album = albums.find(
+                (candidate) =>
+                  candidate.title === track.album &&
+                  candidate.artist === track.artist,
+              );
+
+              return (
+                <div
+                  className={`track-row ${
+                    selectedTrackId === track.id ? 'is-selected' : ''
+                  }`}
+                  key={track.id}
+                  onClick={() => onSelectTrack(track.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onSelectTrack(track.id);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
                 <button
                   className="track-cell-button track-index"
                   onClick={(event) => {
@@ -404,8 +530,124 @@ export function MusicPlayer({
                   />
                   {favoriteTrackIds.includes(track.id) ? 'Liked' : 'Like'}
                 </button>
+                <div className="track-menu-wrap">
+                  <button
+                    aria-expanded={openMenuTrackId === track.id}
+                    aria-label={`Open actions for ${track.title}`}
+                    className="track-menu-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setOpenMenuTrackId((current) =>
+                        current === track.id ? '' : track.id,
+                      );
+                    }}
+                    type="button"
+                  >
+                    <ActionIcon name="more" />
+                  </button>
+
+                  {openMenuTrackId === track.id ? (
+                    <div
+                      className="track-action-menu"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <button
+                        onClick={() => {
+                          onPlayNext(track.id);
+                          setOpenMenuTrackId('');
+                        }}
+                        type="button"
+                      >
+                        <ActionIcon name="queue" />
+                        Play next
+                      </button>
+                      <button
+                        onClick={() => {
+                          onAddToQueue(track.id);
+                          setOpenMenuTrackId('');
+                        }}
+                        type="button"
+                      >
+                        <ActionIcon name="queue" />
+                        Add to queue
+                      </button>
+                      <button
+                        onClick={() => {
+                          onShareTrack(track);
+                          setOpenMenuTrackId('');
+                        }}
+                        type="button"
+                      >
+                        <ActionIcon name="share" />
+                        Share
+                      </button>
+                      <button
+                        disabled={!artist}
+                        onClick={() => {
+                          if (artist) {
+                            onSelectArtist(artist.id);
+                          }
+                          setOpenMenuTrackId('');
+                        }}
+                        type="button"
+                      >
+                        <ActionIcon name="artist" />
+                        Go to artist
+                      </button>
+                      <button
+                        disabled={!album}
+                        onClick={() => {
+                          if (album) {
+                            onSelectAlbum(album.id);
+                          }
+                          setOpenMenuTrackId('');
+                        }}
+                        type="button"
+                      >
+                        <ActionIcon name="album" />
+                        Go to album
+                      </button>
+                      <div className="menu-playlist-control">
+                        <label>
+                          <span>Save to playlist</span>
+                          <select
+                            disabled={!playlists.length}
+                            onChange={(event) =>
+                              setMenuPlaylistIdByTrackId((current) => ({
+                                ...current,
+                                [track.id]: event.target.value,
+                              }))
+                            }
+                            value={menuPlaylistId}
+                          >
+                            {playlists.length ? (
+                              playlists.map((playlist) => (
+                                <option key={playlist.id} value={playlist.id}>
+                                  {playlist.name}
+                                </option>
+                              ))
+                            ) : (
+                              <option value="">Create playlist first</option>
+                            )}
+                          </select>
+                        </label>
+                        <button
+                          disabled={!playlists.length}
+                          onClick={() => {
+                            onSaveTrackToPlaylist(track.id, menuPlaylistId);
+                            setOpenMenuTrackId('');
+                          }}
+                          type="button"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            ))}
+              );
+            })}
             {!tracks.length ? (
               <div className="empty-state">No tracks match your search.</div>
             ) : null}
@@ -417,10 +659,13 @@ export function MusicPlayer({
         <section className="rail-section">
           <div className="section-heading">
             <h2>Up next</h2>
+            <button type="button">{queueItems.length ? 'Queue' : 'View'}</button>
           </div>
           <div className="queue-list">
-            {tracks
-              .filter((track) => track.id !== selectedTrack.id)
+            {(queuedTracks.length
+              ? queuedTracks
+              : tracks.filter((track) => track.id !== selectedTrack.id)
+            )
               .slice(0, 4)
               .map((track) => (
                 <button
@@ -440,8 +685,8 @@ export function MusicPlayer({
         </section>
 
         <section className="rail-section listener-card">
-          <p className="section-kicker">Playlist</p>
-          <h2>{selectedPlaylist?.name ?? 'Library'}</h2>
+          <p className="section-kicker">Source</p>
+          <h2>{selectedPlaylist?.name ?? selectedSourceLabel}</h2>
           <p>
             {selectedPlaylist
               ? `${selectedPlaylist.trackCount} saved tracks`
@@ -460,10 +705,31 @@ export function MusicPlayer({
           ) : null}
         </section>
 
-        <section className="rail-section listener-card">
+<section className="rail-section listener-card">
           <p className="section-kicker">Listening as</p>
           <h2>{session.user.profileName}</h2>
           <p>{session.user.email}</p>
+          {session.user.role === 'admin' ? (
+            <span className="role-badge">Admin</span>
+          ) : null}
+          <button
+            className="subtle-action full-width danger"
+            onClick={onDeleteAccount}
+            type="button"
+          >
+            Delete Account
+          </button>
+          {session.user.role === 'admin' ? (
+            <div className='margin-top'>
+            <button
+              className="subtle-action full-width"
+              onClick={onOpenAdmin}
+              type="button"
+            >
+              Admin panel
+            </button>
+            </div>
+          ) : null}
         </section>
       </aside>
 

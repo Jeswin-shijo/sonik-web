@@ -5,24 +5,102 @@ import { apiBaseUrl, googleClientId, sessionStorageKey } from './config';
 import { fallbackTracks } from './data/fallbackTracks';
 import { formatSeconds, getDurationLabel, isUsableDuration } from './helpers/time';
 import { AuthForms } from './components/AuthForms';
+import { ConfirmProvider, useConfirm } from './components/ConfirmDialog';
 import { AccessScreen } from './screens/AccessScreen';
+import { AdminScreen } from './screens/AdminScreen';
 import { MusicPlayer } from './screens/MusicPlayer';
 import type {
   AuthResponse,
   AuthView,
+  AlbumsResponse,
+  AlbumSummary,
+  ArtistsResponse,
+  ArtistSummary,
   ForgotPasswordResponse,
   MusicTrack,
   PlaylistResponse,
   PlaylistSummary,
   PlaylistsResponse,
+  QueueActionResponse,
+  QueueItemSummary,
+  QueueResponse,
   RepeatMode,
   SessionState,
   SessionUser,
+  ThemeMode,
   TracksResponse,
 } from './types';
 import './App.css';
 
+const themeStorageKey = 'sonik-theme-mode';
+
+function getInitialThemeMode(): ThemeMode {
+  const storedTheme = localStorage.getItem(themeStorageKey);
+
+  if (storedTheme === 'light' || storedTheme === 'dark') {
+    return storedTheme;
+  }
+
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches
+    ? 'light'
+    : 'dark';
+}
+
+function buildArtistsFromTracks(tracks: MusicTrack[]): ArtistSummary[] {
+  const artistsByName = new Map<string, MusicTrack[]>();
+
+  tracks.forEach((track) => {
+    const artistTracks = artistsByName.get(track.artist) ?? [];
+    artistTracks.push(track);
+    artistsByName.set(track.artist, artistTracks);
+  });
+  const artists: ArtistSummary[] = [];
+  let index = 0;
+
+  artistsByName.forEach((artistTracks, name) => {
+    artists.push({
+      id: `artist-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      name,
+      trackCount: artistTracks.length,
+      albumCount: new Set(artistTracks.map((track) => track.album)).size,
+      tracks: artistTracks,
+    });
+    index += 1;
+  });
+
+  return artists.sort((first, second) => first.name.localeCompare(second.name));
+}
+
+function buildAlbumsFromTracks(tracks: MusicTrack[]): AlbumSummary[] {
+  const albumsByKey = new Map<string, MusicTrack[]>();
+
+  tracks.forEach((track) => {
+    const key = `${track.album}\u0000${track.artist}`;
+    const albumTracks = albumsByKey.get(key) ?? [];
+    albumTracks.push(track);
+    albumsByKey.set(key, albumTracks);
+  });
+  const albums: AlbumSummary[] = [];
+  let index = 0;
+
+  albumsByKey.forEach((albumTracks, key) => {
+    const [title, artist] = key.split('\u0000');
+
+    albums.push({
+      id: `album-${index}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      title,
+      artist,
+      trackCount: albumTracks.length,
+      tracks: albumTracks,
+    });
+    index += 1;
+  });
+
+  return albums.sort((first, second) => first.title.localeCompare(second.title));
+}
+
 function AppContent() {
+  const confirm = useConfirm();
   const [view, setView] = useState<AuthView>('login');
   const [session, setSession] = useState<SessionState | null>(null);
   const [tracks, setTracks] = useState<MusicTrack[]>(fallbackTracks);
@@ -30,9 +108,15 @@ function AppContent() {
   const [favoriteTracks, setFavoriteTracks] = useState<MusicTrack[]>([]);
   const [recentTracks, setRecentTracks] = useState<MusicTrack[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
+  const [artists, setArtists] = useState<ArtistSummary[]>(
+    buildArtistsFromTracks(fallbackTracks),
+  );
+  const [albums, setAlbums] = useState<AlbumSummary[]>(
+    buildAlbumsFromTracks(fallbackTracks),
+  );
+  const [queueItems, setQueueItems] = useState<QueueItemSummary[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('library');
   const [addToPlaylistId, setAddToPlaylistId] = useState('');
-  const [playlistName, setPlaylistName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [durationByTrackId, setDurationByTrackId] = useState<Record<string, string>>({});
   const [isBootstrapping, setIsBootstrapping] = useState(true);
@@ -47,6 +131,7 @@ function AppContent() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(76);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [loginForm, setLoginForm] = useState({
     email: '',
@@ -58,13 +143,15 @@ function AppContent() {
     password: '',
     confirmPassword: '',
   });
-  const [forgotForm, setForgotForm] = useState({
-    email: '',
-  });
   const [resetForm, setResetForm] = useState({
-    token: '',
     newPassword: '',
   });
+  const [otpForm, setOtpForm] = useState({
+    email: '',
+    otp: '',
+  });
+  const [otpStep, setOtpStep] = useState<'email' | 'verify'>('email');
+  const [isAdminViewOpen, setIsAdminViewOpen] = useState(false);
 
   const selectedTrack = useMemo(
     () => tracks.find((track) => track.id === selectedTrackId) ?? tracks[0],
@@ -82,8 +169,39 @@ function AppContent() {
         .join(' ')
         .toLowerCase()
         .includes(query),
-    );
+      );
   }, [searchQuery, tracks]);
+  const selectedSourceLabel = useMemo(() => {
+    if (selectedPlaylistId.startsWith('artist:')) {
+      const artist = artists.find(
+        (candidate) => candidate.id === selectedPlaylistId.slice(7),
+      );
+
+      return artist ? `Artist: ${artist.name}` : 'Artist';
+    }
+
+    if (selectedPlaylistId.startsWith('album:')) {
+      const album = albums.find(
+        (candidate) => candidate.id === selectedPlaylistId.slice(6),
+      );
+
+      return album ? `Album: ${album.title}` : 'Album';
+    }
+
+    if (selectedPlaylistId === 'favorites') {
+      return 'Liked Songs';
+    }
+
+    if (selectedPlaylistId === 'recent') {
+      return 'Recent Plays';
+    }
+
+    const selectedPlaylist = playlists.find(
+      (playlist) => playlist.id === selectedPlaylistId,
+    );
+
+    return selectedPlaylist?.name ?? 'Library';
+  }, [albums, artists, playlists, selectedPlaylistId]);
 
   useEffect(() => {
     if (!visibleTracks.length) {
@@ -133,27 +251,49 @@ function AppContent() {
     };
   }, [durationByTrackId, libraryTracks]);
 
-  useEffect(() => {
-    void requestJson<TracksResponse>('/tracks')
-      .then((payload) => {
-        if (!payload.tracks.length) {
-          return;
-        }
+  async function loadLibraryTracks(resetPlayback = false) {
+    try {
+      const [tracksPayload, artistsPayload, albumsPayload] = await Promise.all([
+        requestJson<TracksResponse>('/tracks'),
+        requestJson<ArtistsResponse>('/tracks/artists').catch(() => null),
+        requestJson<AlbumsResponse>('/tracks/albums').catch(() => null),
+      ]);
 
-        setLibraryTracks(payload.tracks);
-        setTracks(payload.tracks);
-        setSelectedTrackId(payload.tracks[0].id);
+      if (!tracksPayload.tracks.length) {
+        return;
+      }
+
+      setLibraryTracks(tracksPayload.tracks);
+      setTracks(tracksPayload.tracks);
+      setArtists(
+        artistsPayload?.artists.length
+          ? artistsPayload.artists
+          : buildArtistsFromTracks(tracksPayload.tracks),
+      );
+      setAlbums(
+        albumsPayload?.albums.length
+          ? albumsPayload.albums
+          : buildAlbumsFromTracks(tracksPayload.tracks),
+      );
+
+      if (resetPlayback) {
+        setSelectedTrackId(tracksPayload.tracks[0].id);
         setProgress(0);
         setCurrentTime(0);
         setDuration(0);
         setIsPlaying(false);
-      })
-      .catch(() => {
-        setNoticeMessage('Local tracks could not be loaded from the backend yet.');
-      });
-  }, []);
+      }
+    } catch {
+      setNoticeMessage('Local tracks could not be loaded from the backend yet.');
+    }
+  }
 
   useEffect(() => {
+    void loadLibraryTracks(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+useEffect(() => {
     if (!session) {
       return;
     }
@@ -163,6 +303,29 @@ function AppContent() {
   }, [session]);
 
   useEffect(() => {
+    if (view === 'login') {
+      setOtpStep('email');
+      setOtpForm({ email: '', otp: '' });
+    }
+  }, [view]);
+
+  useEffect(() => {
+    if (selectedPlaylistId.startsWith('artist:')) {
+      const artist = artists.find(
+        (candidate) => candidate.id === selectedPlaylistId.slice(7),
+      );
+      setTracks(artist?.tracks.length ? artist.tracks : libraryTracks);
+      return;
+    }
+
+    if (selectedPlaylistId.startsWith('album:')) {
+      const album = albums.find(
+        (candidate) => candidate.id === selectedPlaylistId.slice(6),
+      );
+      setTracks(album?.tracks.length ? album.tracks : libraryTracks);
+      return;
+    }
+
     if (selectedPlaylistId === 'library') {
       setTracks(libraryTracks);
       return;
@@ -184,6 +347,8 @@ function AppContent() {
     setTracks(selectedPlaylist?.tracks.length ? selectedPlaylist.tracks : libraryTracks);
   }, [
     favoriteTracks,
+    albums,
+    artists,
     libraryTracks,
     playlists,
     recentTracks,
@@ -239,6 +404,11 @@ function AppContent() {
 
     audio.volume = volume / 100;
   }, [volume]);
+
+  useEffect(() => {
+    localStorage.setItem(themeStorageKey, themeMode);
+    document.documentElement.style.colorScheme = themeMode;
+  }, [themeMode]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -300,27 +470,34 @@ function AppContent() {
       return;
     }
 
-    const [favoritesPayload, recentPayload, playlistsPayload] = await Promise.all([
-      requestAuthorizedJson<TracksResponse>(
-        '/tracks/favorites/me',
-        undefined,
-        activeSession,
-      ),
-      requestAuthorizedJson<TracksResponse>(
-        '/tracks/recent/me',
-        undefined,
-        activeSession,
-      ),
-      requestAuthorizedJson<PlaylistsResponse>(
-        '/playlists',
-        undefined,
-        activeSession,
-      ),
-    ]);
+    const [favoritesPayload, recentPayload, playlistsPayload, queuePayload] =
+      await Promise.all([
+        requestAuthorizedJson<TracksResponse>(
+          '/tracks/favorites/me',
+          undefined,
+          activeSession,
+        ),
+        requestAuthorizedJson<TracksResponse>(
+          '/tracks/recent/me',
+          undefined,
+          activeSession,
+        ),
+        requestAuthorizedJson<PlaylistsResponse>(
+          '/playlists',
+          undefined,
+          activeSession,
+        ),
+        requestAuthorizedJson<QueueResponse>(
+          '/tracks/queue/me',
+          undefined,
+          activeSession,
+        ),
+      ]);
 
     setFavoriteTracks(favoritesPayload.tracks);
     setRecentTracks(recentPayload.tracks);
     setPlaylists(playlistsPayload.playlists);
+    setQueueItems(queuePayload.queue);
   }
 
   function clearFeedback() {
@@ -332,10 +509,14 @@ function AppContent() {
     setErrorMessage(getFriendlyError(error, view));
   }
 
-  function selectTrack(trackId: string) {
-    if (trackId === selectedTrackId) {
+  function selectTrack(trackId: string, forcePlay = false) {
+    if (trackId === selectedTrackId && !forcePlay) {
       setIsPlaying((current) => !current);
       return;
+    }
+
+    if (trackId === selectedTrackId && audioRef.current) {
+      audioRef.current.currentTime = 0;
     }
 
     setSelectedTrackId(trackId);
@@ -349,7 +530,39 @@ function AppContent() {
     setCurrentTime(0);
   }
 
+  function selectArtist(artistId: string) {
+    setSelectedPlaylistId(`artist:${artistId}`);
+    setSearchQuery('');
+    setProgress(0);
+    setCurrentTime(0);
+  }
+
+  function selectAlbum(albumId: string) {
+    setSelectedPlaylistId(`album:${albumId}`);
+    setSearchQuery('');
+    setProgress(0);
+    setCurrentTime(0);
+  }
+
   function selectNextTrack() {
+    const queuedItem = queueItems[0];
+
+    if (queuedItem) {
+      setQueueItems((current) =>
+        current.filter((item) => item.id !== queuedItem.id),
+      );
+      void requestAuthorizedJson<QueueResponse>(
+        `/tracks/queue/${queuedItem.id}`,
+        {
+          method: 'DELETE',
+        },
+      )
+        .then((payload) => setQueueItems(payload.queue))
+        .catch(() => undefined);
+      selectTrack(queuedItem.track.id, true);
+      return;
+    }
+
     const playbackTracks = visibleTracks.length ? visibleTracks : tracks;
 
     if (!playbackTracks.length) {
@@ -362,7 +575,7 @@ function AppContent() {
       );
       const nextTrack =
         nextChoices[Math.floor(Math.random() * nextChoices.length)];
-      selectTrack(nextTrack.id);
+      selectTrack(nextTrack.id, true);
       return;
     }
 
@@ -377,7 +590,7 @@ function AppContent() {
     }
 
     const nextTrack = playbackTracks[nextIndex % playbackTracks.length];
-    selectTrack(nextTrack.id);
+    selectTrack(nextTrack.id, true);
   }
 
   function selectPreviousTrack() {
@@ -394,7 +607,7 @@ function AppContent() {
       playbackTracks[
         (currentIndex - 1 + playbackTracks.length) % playbackTracks.length
       ];
-    selectTrack(previousTrack.id);
+    selectTrack(previousTrack.id, true);
   }
 
   function togglePlayback() {
@@ -479,25 +692,95 @@ function AppContent() {
     }
   }
 
-  async function createPlaylist(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!session || !playlistName.trim()) {
+  async function enqueueTrack(trackId: string, mode: 'next' | 'end') {
+    if (!session) {
       return;
     }
+
+    try {
+      const payload = await requestAuthorizedJson<QueueActionResponse>(
+        `/tracks/${trackId}/queue`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            mode,
+          }),
+        },
+      );
+
+      setQueueItems(payload.queue);
+    } catch (error) {
+      handleApiError(error);
+    }
+  }
+
+  async function shareTrack(track: MusicTrack) {
+    const shareText = `${track.title} by ${track.artist} on Sonik`;
+    const canShare = typeof navigator.share === 'function';
+
+    if (canShare) {
+      await navigator.share({
+        title: track.title,
+        text: shareText,
+      });
+      return;
+    }
+
+    await navigator.clipboard?.writeText(shareText);
+    setNoticeMessage('Track details copied to clipboard.');
+  }
+
+  async function saveTrackToPlaylist(trackId: string, playlistId?: string) {
+    if (!session || !playlists.length) {
+      return;
+    }
+
+    const targetPlaylist =
+      playlists.find((playlist) => playlist.id === playlistId) ??
+      playlists.find((playlist) => playlist.id === addToPlaylistId) ??
+      playlists[0];
+
+    if (targetPlaylist.tracks.some((track) => track.id === trackId)) {
+      setSelectedPlaylistId(targetPlaylist.id);
+      return;
+    }
+
+    try {
+      const payload = await requestAuthorizedJson<PlaylistResponse>(
+        `/playlists/${targetPlaylist.id}/tracks/${trackId}`,
+        {
+          method: 'POST',
+        },
+      );
+
+      setPlaylists((current) =>
+        current.map((playlist) =>
+          playlist.id === payload.playlist.id ? payload.playlist : playlist,
+        ),
+      );
+      setSelectedPlaylistId(payload.playlist.id);
+      setAddToPlaylistId(payload.playlist.id);
+    } catch (error) {
+      handleApiError(error);
+    }
+  }
+
+  async function createPlaylist(name: string) {
+    if (!session) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
 
     try {
       const payload = await requestAuthorizedJson<PlaylistResponse>('/playlists', {
         method: 'POST',
         body: JSON.stringify({
-          name: playlistName,
+          name: trimmed,
         }),
       });
 
       setPlaylists((current) => [payload.playlist, ...current]);
       setSelectedPlaylistId(payload.playlist.id);
       setAddToPlaylistId(payload.playlist.id);
-      setPlaylistName('');
     } catch (error) {
       handleApiError(error);
     }
@@ -615,24 +898,55 @@ function AppContent() {
     }
   }
 
-  async function handleRegister(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSendOtp(email: string, purpose: 'signup' | 'reset') {
     clearFeedback();
 
-    if (registerForm.password !== registerForm.confirmPassword) {
-      setErrorMessage('Passwords do not match.');
-      return;
+    if (purpose === 'signup') {
+      if (!registerForm.profileName || !registerForm.password) {
+        setErrorMessage('Please fill in all fields.');
+        return;
+      }
+      if (registerForm.password !== registerForm.confirmPassword) {
+        setErrorMessage('Passwords do not match.');
+        return;
+      }
     }
 
     setIsSubmitting(true);
 
     try {
-      const payload = await requestJson<AuthResponse>('/auth/register', {
+      const payload = await requestJson<{ message: string; devOtp?: string }>(
+        '/auth/send-otp',
+        {
+          method: 'POST',
+          body: JSON.stringify({ email, purpose }),
+        },
+      );
+
+      setOtpForm((current) => ({ ...current, email }));
+      setOtpStep('verify');
+      const devSuffix = payload.devOtp ? ` (dev: ${payload.devOtp})` : '';
+      setNoticeMessage(`Verification code sent to ${email}${devSuffix}`);
+    } catch (error) {
+      handleApiError(error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleVerifyOtpSignup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    clearFeedback();
+    setIsSubmitting(true);
+
+    try {
+      const payload = await requestJson<AuthResponse>('/auth/verify-otp-signup', {
         method: 'POST',
         body: JSON.stringify({
           profileName: registerForm.profileName,
-          email: registerForm.email,
+          email: otpForm.email,
           password: registerForm.password,
+          otp: otpForm.otp,
         }),
       });
 
@@ -648,46 +962,19 @@ function AppContent() {
     }
   }
 
-  async function handleForgotPassword(event: FormEvent<HTMLFormElement>) {
+  async function handleVerifyOtpResetPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     clearFeedback();
     setIsSubmitting(true);
 
     try {
-      const payload = await requestJson<ForgotPasswordResponse>(
-        '/auth/forgot-password',
-        {
-          method: 'POST',
-          body: JSON.stringify(forgotForm),
-        },
-      );
-
-      if (payload.devResetToken) {
-        setResetForm((current) => ({
-          ...current,
-          token: payload.devResetToken ?? current.token,
-        }));
-        setView('reset');
-        setNoticeMessage('Choose a new password to finish the reset.');
-      } else {
-        setNoticeMessage('If the account exists, a reset link is on its way.');
-      }
-    } catch (error) {
-      handleApiError(error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handleResetPassword(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    clearFeedback();
-    setIsSubmitting(true);
-
-    try {
-      const payload = await requestJson<AuthResponse>('/auth/reset-password', {
+      const payload = await requestJson<AuthResponse>('/auth/verify-otp-reset-password', {
         method: 'POST',
-        body: JSON.stringify(resetForm),
+        body: JSON.stringify({
+          email: otpForm.email,
+          otp: otpForm.otp,
+          newPassword: resetForm.newPassword,
+        }),
       });
 
       persistSession({
@@ -695,6 +982,39 @@ function AppContent() {
         tokenType: payload.tokenType,
         user: payload.user,
       });
+    } catch (error) {
+      handleApiError(error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!session) {
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: 'Delete your account?',
+      message:
+        'This permanently removes your playlists, favorites, queue, and play history. This cannot be undone.',
+      confirmLabel: 'Delete account',
+      destructive: true,
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    clearFeedback();
+    setIsSubmitting(true);
+
+    try {
+      await requestAuthorizedJson('/auth/account', {
+        method: 'DELETE',
+      });
+
+      logout();
     } catch (error) {
       handleApiError(error);
     } finally {
@@ -738,112 +1058,174 @@ function AppContent() {
     setFavoriteTracks([]);
     setRecentTracks([]);
     setPlaylists([]);
+    setQueueItems([]);
     setSelectedPlaylistId('library');
     setAddToPlaylistId('');
     setView('login');
     setResetForm({
-      token: '',
       newPassword: '',
     });
     clearFeedback();
   }
 
+  function toggleThemeMode() {
+    setThemeMode((current) => (current === 'dark' ? 'light' : 'dark'));
+  }
+
   if (isBootstrapping) {
     return (
-      <div className="boot-screen">
-        <span className="brand-mark">S</span>
-        <p>Opening Sonik</p>
+      <div className={`app-theme theme-${themeMode}`}>
+        <div className="boot-screen">
+          <span className="brand-mark">S</span>
+          <p>Opening Sonik</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (session && isAdminViewOpen && session.user.role === 'admin') {
+    return (
+      <div className={`app-theme theme-${themeMode}`}>
+        <AdminScreen
+          session={session}
+          tracks={libraryTracks}
+          onClose={() => setIsAdminViewOpen(false)}
+          onTrackUploaded={() => {
+            void loadLibraryTracks();
+          }}
+          onTrackDeleted={(trackId) => {
+            setLibraryTracks((current) =>
+              current.filter((track) => track.id !== trackId),
+            );
+            setTracks((current) =>
+              current.filter((track) => track.id !== trackId),
+            );
+            void loadLibraryTracks();
+          }}
+          themeMode={themeMode}
+          onThemeToggle={toggleThemeMode}
+        />
       </div>
     );
   }
 
   if (session) {
     return (
-      <MusicPlayer
-        session={session}
-        audioRef={audioRef}
-        tracks={visibleTracks}
-        favoriteTrackIds={favoriteTracks.map((track) => track.id)}
-        playlists={playlists}
-        selectedPlaylistId={selectedPlaylistId}
-        addToPlaylistId={addToPlaylistId}
-        playlistName={playlistName}
-        searchQuery={searchQuery}
-        durationByTrackId={durationByTrackId}
-        selectedTrack={selectedTrack}
-        selectedTrackId={selectedTrackId}
-        progress={progress}
-        currentTime={currentTime}
-        duration={duration}
-        isPlaying={isPlaying}
-        isShuffle={isShuffle}
-        repeatMode={repeatMode}
-        volume={volume}
-        onSelectTrack={selectTrack}
-        onSelectPlaylist={selectPlaylist}
-        onPlaylistNameChange={setPlaylistName}
-        onSearchChange={setSearchQuery}
-        onAddToPlaylistTargetChange={setAddToPlaylistId}
-        onCreatePlaylist={createPlaylist}
-        onAddToPlaylist={addSelectedTrackToPlaylist}
-        onRemoveFromPlaylist={removeTrackFromPlaylist}
-        onToggleFavorite={toggleFavorite}
-        onProgressChange={seekToProgress}
-        onPlayToggle={togglePlayback}
-        onNext={selectNextTrack}
-        onPrevious={selectPreviousTrack}
-        onShuffleToggle={() => setIsShuffle((current) => !current)}
-        onRepeatToggle={toggleRepeatMode}
-        onVolumeChange={setVolume}
-        onLoadedMetadata={syncAudioMetadata}
-        onTimeUpdate={syncAudioTime}
-        onEnded={handleTrackEnded}
-        onLogout={logout}
-      />
+      <div className={`app-theme theme-${themeMode}`}>
+        <MusicPlayer
+          session={session}
+          onOpenAdmin={() => setIsAdminViewOpen(true)}
+          audioRef={audioRef}
+          tracks={visibleTracks}
+          favoriteTrackIds={favoriteTracks.map((track) => track.id)}
+          playlists={playlists}
+          artists={artists}
+          albums={albums}
+          queueItems={queueItems}
+          selectedPlaylistId={selectedPlaylistId}
+          selectedSourceLabel={selectedSourceLabel}
+          addToPlaylistId={addToPlaylistId}
+          searchQuery={searchQuery}
+          durationByTrackId={durationByTrackId}
+          selectedTrack={selectedTrack}
+          selectedTrackId={selectedTrackId}
+          progress={progress}
+          currentTime={currentTime}
+          duration={duration}
+          isPlaying={isPlaying}
+          isShuffle={isShuffle}
+          repeatMode={repeatMode}
+          volume={volume}
+          onSelectTrack={selectTrack}
+          onSelectPlaylist={selectPlaylist}
+          onSelectArtist={selectArtist}
+          onSelectAlbum={selectAlbum}
+          onSearchChange={setSearchQuery}
+          onAddToPlaylistTargetChange={setAddToPlaylistId}
+          onCreatePlaylist={createPlaylist}
+          onAddToPlaylist={addSelectedTrackToPlaylist}
+          onSaveTrackToPlaylist={saveTrackToPlaylist}
+          onRemoveFromPlaylist={removeTrackFromPlaylist}
+          onToggleFavorite={toggleFavorite}
+          onPlayNext={(trackId) => void enqueueTrack(trackId, 'next')}
+          onAddToQueue={(trackId) => void enqueueTrack(trackId, 'end')}
+          onShareTrack={(track) => void shareTrack(track).catch(() => undefined)}
+          onProgressChange={seekToProgress}
+          onPlayToggle={togglePlayback}
+          onNext={selectNextTrack}
+          onPrevious={selectPreviousTrack}
+          onShuffleToggle={() => setIsShuffle((current) => !current)}
+          onRepeatToggle={toggleRepeatMode}
+          onVolumeChange={setVolume}
+          onLoadedMetadata={syncAudioMetadata}
+onTimeUpdate={syncAudioTime}
+          onEnded={handleTrackEnded}
+          onLogout={logout}
+          onDeleteAccount={handleDeleteAccount}
+          themeMode={themeMode}
+          onThemeToggle={toggleThemeMode}
+        />
+      </div>
     );
   }
 
+  const onViewChange = (val: any) => {
+    setView(val);
+    setRegisterForm((pre: any) => ({
+      ...pre,
+      password: '',
+      confirmPassword: '',
+    }));
+  };
+
   return (
-    <AccessScreen
-      view={view}
-      tracks={tracks}
-      selectedTrack={selectedTrack}
-      activeForm={
-        <AuthForms
-          view={view}
-          isSubmitting={isSubmitting}
-          loginForm={loginForm}
-          registerForm={registerForm}
-          forgotForm={forgotForm}
-          resetForm={resetForm}
-          setLoginForm={setLoginForm}
-          setRegisterForm={setRegisterForm}
-          setForgotForm={setForgotForm}
-          setResetForm={setResetForm}
-          onLogin={handleLogin}
-          onRegister={handleRegister}
-          onForgotPassword={handleForgotPassword}
-          onResetPassword={handleResetPassword}
-        />
-      }
-      errorMessage={errorMessage}
-      noticeMessage={noticeMessage}
-      onSelectTrack={selectTrack}
-      onViewChange={setView}
-      onClearFeedback={clearFeedback}
-      onGoogleSuccess={handleGoogleSuccess}
-      onGoogleError={() => setErrorMessage('Google sign-in could not be completed.')}
-    />
+    <div className={`app-theme theme-${themeMode}`}>
+      <AccessScreen
+        view={view}
+        activeForm={
+<AuthForms
+            view={view}
+            isSubmitting={isSubmitting}
+            loginForm={loginForm}
+            registerForm={registerForm}
+            resetForm={resetForm}
+            otpForm={otpForm}
+            otpStep={otpStep}
+            setLoginForm={setLoginForm}
+            setRegisterForm={setRegisterForm}
+            setResetForm={setResetForm}
+            setOtpForm={setOtpForm}
+            onLogin={handleLogin}
+            onSendOtp={handleSendOtp}
+            onVerifyOtpSignup={handleVerifyOtpSignup}
+            onVerifyOtpResetPassword={handleVerifyOtpResetPassword}
+          />
+        }
+        errorMessage={errorMessage}
+        noticeMessage={noticeMessage}
+        onViewChange={onViewChange}
+        onClearFeedback={clearFeedback}
+        onGoogleSuccess={handleGoogleSuccess}
+        onGoogleError={() =>
+          setErrorMessage('Google sign-in could not be completed.')
+        }
+        themeMode={themeMode}
+        onThemeToggle={toggleThemeMode}
+      />
+    </div>
   );
 }
 
 function App() {
-  return googleClientId ? (
-    <GoogleOAuthProvider clientId={googleClientId}>
+  const inner = (
+    <ConfirmProvider>
       <AppContent />
-    </GoogleOAuthProvider>
+    </ConfirmProvider>
+  );
+  return googleClientId ? (
+    <GoogleOAuthProvider clientId={googleClientId}>{inner}</GoogleOAuthProvider>
   ) : (
-    <AppContent />
+    inner
   );
 }
 
