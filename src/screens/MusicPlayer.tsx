@@ -1,4 +1,4 @@
-import { RefObject, useState } from 'react';
+import { RefObject, useEffect, useState } from 'react';
 import { apiBaseUrl } from '../config';
 import { usePrompt } from '../components/ConfirmDialog';
 import { formatSeconds, getDurationLabel, isUsableDuration } from '../helpers/time';
@@ -127,6 +127,21 @@ onEnded: () => void;
   const [menuPlaylistIdByTrackId, setMenuPlaylistIdByTrackId] = useState<
     Record<string, string>
   >({});
+
+  useEffect(() => {
+    if (!openMenuTrackId) return;
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as HTMLElement | null;
+      if (
+        !target?.closest('.track-action-menu') &&
+        !target?.closest('.track-menu-button')
+      ) {
+        setOpenMenuTrackId('');
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [openMenuTrackId]);
   const prompt = usePrompt();
   const audioSource = selectedTrack.streamUrl
     ? `${apiBaseUrl}${selectedTrack.streamUrl}`
@@ -558,7 +573,7 @@ onEnded: () => void;
                         }}
                         type="button"
                       >
-                        <ActionIcon name="queue" />
+                        <ActionIcon name="play-next" />
                         Play next
                       </button>
                       <button
@@ -568,7 +583,7 @@ onEnded: () => void;
                         }}
                         type="button"
                       >
-                        <ActionIcon name="queue" />
+                        <ActionIcon name="queue-add" />
                         Add to queue
                       </button>
                       <button

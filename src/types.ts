@@ -138,6 +138,8 @@ export type ActionIconName =
   | 'check'
   | 'more'
   | 'queue'
+  | 'queue-add'
+  | 'play-next'
   | 'share'
   | 'artist'
   | 'album';
