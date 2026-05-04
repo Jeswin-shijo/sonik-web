@@ -413,7 +413,7 @@ useEffect(() => {
   useEffect(() => {
     const audio = audioRef.current;
 
-    if (!audio || !selectedTrack.streamUrl) {
+    if (!audio || !selectedTrack) {
       return;
     }
 
@@ -421,12 +421,12 @@ useEffect(() => {
     setCurrentTime(0);
     setDuration(0);
     setProgress(0);
-  }, [selectedTrack.id, selectedTrack.streamUrl]);
+  }, [selectedTrack?.id, selectedTrack?.streamUrl]);
 
   useEffect(() => {
     const audio = audioRef.current;
 
-    if (!audio || !selectedTrack.streamUrl) {
+    if (!audio || !selectedTrack?.streamUrl) {
       return;
     }
 
@@ -436,7 +436,7 @@ useEffect(() => {
     }
 
     audio.pause();
-  }, [isPlaying, selectedTrack.streamUrl]);
+  }, [isPlaying, selectedTrack?.streamUrl]);
 
   function persistSession(nextSession: SessionState) {
     localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession));
@@ -611,7 +611,7 @@ useEffect(() => {
   }
 
   function togglePlayback() {
-    if (!selectedTrack.streamUrl) {
+    if (!selectedTrack?.streamUrl) {
       setErrorMessage('This track does not have a backend audio file yet.');
       return;
     }
@@ -795,14 +795,14 @@ useEffect(() => {
       playlists.find((playlist) => playlist.id === addToPlaylistId) ??
       playlists[0];
 
-    if (targetPlaylist.tracks.some((track) => track.id === selectedTrack.id)) {
+    if (targetPlaylist.tracks.some((track) => track.id === selectedTrack?.id)) {
       setSelectedPlaylistId(targetPlaylist.id);
       return;
     }
 
     try {
       const payload = await requestAuthorizedJson<PlaylistResponse>(
-        `/playlists/${targetPlaylist.id}/tracks/${selectedTrack.id}`,
+        `/playlists/${targetPlaylist.id}/tracks/${selectedTrack?.id}`,
         {
           method: 'POST',
         },
@@ -844,11 +844,11 @@ useEffect(() => {
   }
 
   async function recordCurrentPlay(completed: boolean) {
-    if (!session || !selectedTrack.streamUrl) {
+    if (!session || !selectedTrack?.streamUrl) {
       return;
     }
 
-    await requestAuthorizedJson(`/tracks/${selectedTrack.id}/recent`, {
+    await requestAuthorizedJson(`/tracks/${selectedTrack?.id}/recent`, {
       method: 'POST',
       body: JSON.stringify({
         progressSeconds: Math.floor(currentTime),
@@ -1110,6 +1110,16 @@ useEffect(() => {
   }
 
   if (session) {
+    if (!selectedTrack) {
+      return (
+        <div className={`app-theme theme-${themeMode}`}>
+          <div className="boot-screen">
+            <span className="brand-mark">S</span>
+            <p>Loading library…</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className={`app-theme theme-${themeMode}`}>
         <MusicPlayer

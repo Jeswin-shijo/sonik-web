@@ -10,12 +10,13 @@ const dummyCoverPalettes = [
   ['#f3cf65', '#1b8f89', '#fff1b0'],
 ];
 
-function getDummyCoverDataUrl(title: string) {
+function getDummyCoverDataUrl(title: string = 'Unknown') {
+  const safeTitle = title || 'Unknown';
   const paletteIndex = Math.abs(
-    title.split('').reduce((total, character) => total + character.charCodeAt(0), 0),
+    safeTitle.split('').reduce((total, character) => total + character.charCodeAt(0), 0),
   ) % dummyCoverPalettes.length;
   const [first, second, accent] = dummyCoverPalettes[paletteIndex];
-  const initial = title.trim().charAt(0).toUpperCase() || 'S';
+  const initial = safeTitle.trim().charAt(0).toUpperCase() || 'S';
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
       <defs>

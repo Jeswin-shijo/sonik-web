@@ -1,6 +1,14 @@
-import { Dispatch, FormEvent, SetStateAction } from 'react';
-import type { AuthView } from '../types';
-import { OtpInput } from './OtpInput';
+import {
+  Dispatch,
+  FormEvent,
+  SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type { AuthView } from "../types";
+import { OtpInput } from "./OtpInput";
+import { apiBaseUrl } from "../config";
 
 type LoginForm = {
   email: string;
@@ -46,17 +54,48 @@ export function AuthForms({
   registerForm: RegisterForm;
   resetForm: ResetForm;
   otpForm: OtpForm;
-  otpStep: 'email' | 'verify';
+  otpStep: "email" | "verify";
   setLoginForm: Dispatch<SetStateAction<LoginForm>>;
   setRegisterForm: Dispatch<SetStateAction<RegisterForm>>;
   setResetForm: Dispatch<SetStateAction<ResetForm>>;
   setOtpForm: Dispatch<SetStateAction<OtpForm>>;
   onLogin: (event: FormEvent<HTMLFormElement>) => void;
-  onSendOtp: (email: string, purpose: 'signup' | 'reset') => void;
+  onSendOtp: (email: string, purpose: "signup" | "reset") => void;
   onVerifyOtpSignup: (event: FormEvent<HTMLFormElement>) => void;
   onVerifyOtpResetPassword: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  if (view === 'login') {
+  // ── Async email availability check (for sign-up) ──
+  const [emailStatus, setEmailStatus] = useState<
+    "idle" | "checking" | "available" | "taken"
+  >("idle");
+  const emailCheckTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    if (view !== "register-otp" || otpStep !== "email") {
+      return;
+    }
+    const email = otpForm.email.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailStatus("idle");
+      return;
+    }
+    setEmailStatus("checking");
+    clearTimeout(emailCheckTimer.current);
+    emailCheckTimer.current = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `${apiBaseUrl}/auth/check-email?email=${encodeURIComponent(email)}`,
+        );
+        const data = await response.json();
+        setEmailStatus(data.available ? "available" : "taken");
+      } catch {
+        setEmailStatus("idle");
+      }
+    }, 500);
+    return () => clearTimeout(emailCheckTimer.current);
+  }, [otpForm.email, view, otpStep]);
+
+  if (view === "login") {
     return (
       <form className="auth-form" onSubmit={onLogin}>
         <label>
@@ -92,20 +131,23 @@ export function AuthForms({
           />
         </label>
         <button className="primary-action full-width" disabled={isSubmitting}>
-          {isSubmitting ? 'Signing in' : 'Sign in'}
+          {isSubmitting ? "Signing in" : "Sign in"}
         </button>
       </form>
     );
   }
 
-  if (view === 'register-otp') {
+  if (view === "register-otp") {
     const handleRegisterOtpSubmit = (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (otpStep === 'email') {
+      if (otpStep === "email") {
         if (registerForm.password !== registerForm.confirmPassword) {
           return;
         }
-        onSendOtp(otpForm.email, 'signup');
+        if (emailStatus === "taken") {
+          return;
+        }
+        onSendOtp(otpForm.email, "signup");
       } else {
         onVerifyOtpSignup(event);
       }
@@ -115,7 +157,7 @@ export function AuthForms({
       registerForm.password === registerForm.confirmPassword;
     return (
       <form className="auth-form" onSubmit={handleRegisterOtpSubmit}>
-        {otpStep === 'email' ? (
+        {otpStep === "email" ? (
           <>
             <label>
               Profile name
@@ -146,6 +188,26 @@ export function AuthForms({
                 placeholder="listener@sonik.app"
                 required
               />
+              {emailStatus === "checking" && (
+                <small
+                  style={{
+                    color: "var(--text-secondary)",
+                    marginTop: "0.25rem",
+                  }}
+                >
+                  Checking availability…
+                </small>
+              )}
+              {emailStatus === "taken" && (
+                <small style={{ color: "#ef4444", marginTop: "0.25rem" }}>
+                  This email is already registered. Please sign in instead.
+                </small>
+              )}
+              {emailStatus === "available" && (
+                <small style={{ color: "#22c55e", marginTop: "0.25rem" }}>
+                  ✓ Email is available
+                </small>
+              )}
             </label>
             <label>
               Password
@@ -204,7 +266,7 @@ export function AuthForms({
             <button
               type="button"
               className="text-action"
-              onClick={() => onSendOtp(otpForm.email, 'signup')}
+              onClick={() => onSendOtp(otpForm.email, "signup")}
               disabled={isSubmitting}
             >
               Resend code
@@ -215,17 +277,19 @@ export function AuthForms({
           className="primary-action full-width"
           disabled={
             isSubmitting ||
-            (otpStep === 'email' && !passwordsMatch) ||
-            (otpStep === 'verify' && otpForm.otp.length !== 6)
+            (otpStep === "email" && !passwordsMatch) ||
+            (otpStep === "email" &&
+              (emailStatus === "taken" || emailStatus === "checking")) ||
+            (otpStep === "verify" && otpForm.otp.length !== 6)
           }
         >
           {isSubmitting
-            ? otpStep === 'email'
-              ? 'Sending code'
-              : 'Creating account'
-            : otpStep === 'email'
-              ? 'Send verification code'
-              : 'Verify & create account'}
+            ? otpStep === "email"
+              ? "Sending code"
+              : "Creating account"
+            : otpStep === "email"
+              ? "Send verification code"
+              : "Verify & create account"}
         </button>
       </form>
     );
@@ -233,15 +297,15 @@ export function AuthForms({
 
   const handleForgotOtpSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (otpStep === 'email') {
-      onSendOtp(otpForm.email, 'reset');
+    if (otpStep === "email") {
+      onSendOtp(otpForm.email, "reset");
     } else {
       onVerifyOtpResetPassword(event);
     }
   };
   return (
     <form className="auth-form" onSubmit={handleForgotOtpSubmit}>
-      {otpStep === 'email' ? (
+      {otpStep === "email" ? (
         <label>
           Email
           <input
@@ -294,7 +358,7 @@ export function AuthForms({
           <button
             type="button"
             className="text-action"
-            onClick={() => onSendOtp(otpForm.email, 'reset')}
+            onClick={() => onSendOtp(otpForm.email, "reset")}
             disabled={isSubmitting}
           >
             Resend code
@@ -305,17 +369,17 @@ export function AuthForms({
         className="primary-action full-width"
         disabled={
           isSubmitting ||
-          (otpStep === 'verify' &&
+          (otpStep === "verify" &&
             (otpForm.otp.length !== 6 || !resetForm.newPassword))
         }
       >
         {isSubmitting
-          ? otpStep === 'email'
-            ? 'Sending code'
-            : 'Updating password'
-          : otpStep === 'email'
-            ? 'Send reset code'
-            : 'Verify & reset password'}
+          ? otpStep === "email"
+            ? "Sending code"
+            : "Updating password"
+          : otpStep === "email"
+            ? "Send reset code"
+            : "Verify & reset password"}
       </button>
     </form>
   );
