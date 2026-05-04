@@ -68,7 +68,7 @@ export function AuthForms({
   const [emailStatus, setEmailStatus] = useState<
     "idle" | "checking" | "available" | "taken"
   >("idle");
-  const emailCheckTimer = useRef<ReturnType<typeof setTimeout>>();
+  const emailCheckTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (view !== "register-otp" || otpStep !== "email") {
