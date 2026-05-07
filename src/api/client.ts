@@ -14,12 +14,14 @@ export class ApiRequestError extends Error {
 export async function requestJson<T>(path: string, init?: RequestInit) {
   const { headers, ...requestInit } = init ?? {};
 
+  const requestHeaders = new Headers((headers ?? {}) as Record<string, string>);
+  if (!(requestInit.body instanceof FormData) && !requestHeaders.has('Content-Type')) {
+    requestHeaders.set('Content-Type', 'application/json');
+  }
+
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...requestInit,
-    headers: {
-      'Content-Type': 'application/json',
-      ...((headers ?? {}) as Record<string, string>),
-    },
+    headers: requestHeaders,
   });
 
   const payload = (await response.json().catch(() => null)) as

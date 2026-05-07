@@ -1,14 +1,18 @@
-import { CredentialResponse, GoogleOAuthProvider } from '@react-oauth/google';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { getFriendlyError, requestJson } from './api/client';
-import { apiBaseUrl, googleClientId, sessionStorageKey } from './config';
-import { fallbackTracks } from './data/fallbackTracks';
-import { formatSeconds, getDurationLabel, isUsableDuration } from './helpers/time';
-import { AuthForms } from './components/AuthForms';
-import { ConfirmProvider, useConfirm } from './components/ConfirmDialog';
-import { AccessScreen } from './screens/AccessScreen';
-import { AdminScreen } from './screens/AdminScreen';
-import { MusicPlayer } from './screens/MusicPlayer';
+import { CredentialResponse, GoogleOAuthProvider } from "@react-oauth/google";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { getFriendlyError, requestJson } from "./api/client";
+import { apiBaseUrl, googleClientId, sessionStorageKey } from "./config";
+import { fallbackTracks } from "./data/fallbackTracks";
+import {
+  formatSeconds,
+  getDurationLabel,
+  isUsableDuration,
+} from "./helpers/time";
+import { AuthForms } from "./components/AuthForms";
+import { ConfirmProvider, useConfirm } from "./components/ConfirmDialog";
+import { AccessScreen } from "./screens/AccessScreen";
+import { AdminScreen } from "./screens/AdminScreen";
+import { MusicPlayer } from "./screens/MusicPlayer";
 import type {
   AuthResponse,
   AuthView,
@@ -16,7 +20,6 @@ import type {
   AlbumSummary,
   ArtistsResponse,
   ArtistSummary,
-  ForgotPasswordResponse,
   MusicTrack,
   PlaylistResponse,
   PlaylistSummary,
@@ -29,21 +32,23 @@ import type {
   SessionUser,
   ThemeMode,
   TracksResponse,
-} from './types';
-import './App.css';
+  SingerSummary,
+  LyricistSummary,
+} from "./types";
+import "./App.css";
 
-const themeStorageKey = 'sonik-theme-mode';
+const themeStorageKey = "sonik-theme-mode";
 
 function getInitialThemeMode(): ThemeMode {
   const storedTheme = localStorage.getItem(themeStorageKey);
 
-  if (storedTheme === 'light' || storedTheme === 'dark') {
+  if (storedTheme === "light" || storedTheme === "dark") {
     return storedTheme;
   }
 
-  return window.matchMedia?.('(prefers-color-scheme: light)').matches
-    ? 'light'
-    : 'dark';
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches
+    ? "light"
+    : "dark";
 }
 
 function buildArtistsFromTracks(tracks: MusicTrack[]): ArtistSummary[] {
@@ -59,7 +64,7 @@ function buildArtistsFromTracks(tracks: MusicTrack[]): ArtistSummary[] {
 
   artistsByName.forEach((artistTracks, name) => {
     artists.push({
-      id: `artist-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      id: `artist-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
       name,
       trackCount: artistTracks.length,
       albumCount: new Set(artistTracks.map((track) => track.album)).size,
@@ -84,10 +89,10 @@ function buildAlbumsFromTracks(tracks: MusicTrack[]): AlbumSummary[] {
   let index = 0;
 
   albumsByKey.forEach((albumTracks, key) => {
-    const [title, artist] = key.split('\u0000');
+    const [title, artist] = key.split("\u0000");
 
     albums.push({
-      id: `album-${index}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      id: `album-${index}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
       title,
       artist,
       trackCount: albumTracks.length,
@@ -96,37 +101,44 @@ function buildAlbumsFromTracks(tracks: MusicTrack[]): AlbumSummary[] {
     index += 1;
   });
 
-  return albums.sort((first, second) => first.title.localeCompare(second.title));
+  return albums.sort((first, second) =>
+    first.title.localeCompare(second.title),
+  );
 }
 
 function AppContent() {
   const confirm = useConfirm();
-  const [view, setView] = useState<AuthView>('login');
+  const [view, setView] = useState<AuthView>("login");
   const [session, setSession] = useState<SessionState | null>(null);
   const [tracks, setTracks] = useState<MusicTrack[]>(fallbackTracks);
-  const [libraryTracks, setLibraryTracks] = useState<MusicTrack[]>(fallbackTracks);
+  const [libraryTracks, setLibraryTracks] =
+    useState<MusicTrack[]>(fallbackTracks);
   const [favoriteTracks, setFavoriteTracks] = useState<MusicTrack[]>([]);
   const [recentTracks, setRecentTracks] = useState<MusicTrack[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [artists, setArtists] = useState<ArtistSummary[]>(
     buildArtistsFromTracks(fallbackTracks),
   );
+  const [singers, setSingers] = useState<SingerSummary[]>([]);
+  const [lyricists, setLyricists] = useState<LyricistSummary[]>([]);
   const [albums, setAlbums] = useState<AlbumSummary[]>(
     buildAlbumsFromTracks(fallbackTracks),
   );
   const [queueItems, setQueueItems] = useState<QueueItemSummary[]>([]);
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState('library');
-  const [addToPlaylistId, setAddToPlaylistId] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [durationByTrackId, setDurationByTrackId] = useState<Record<string, string>>({});
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState("library");
+  const [addToPlaylistId, setAddToPlaylistId] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [durationByTrackId, setDurationByTrackId] = useState<
+    Record<string, string>
+  >({});
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [noticeMessage, setNoticeMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState("");
+  const [noticeMessage, setNoticeMessage] = useState("");
   const [selectedTrackId, setSelectedTrackId] = useState(fallbackTracks[0].id);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
-  const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>("off");
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -134,23 +146,23 @@ function AppContent() {
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialThemeMode);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [loginForm, setLoginForm] = useState({
-    email: '',
-    password: '',
+    email: "",
+    password: "",
   });
   const [registerForm, setRegisterForm] = useState({
-    profileName: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
+    profileName: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
   });
   const [resetForm, setResetForm] = useState({
-    newPassword: '',
+    newPassword: "",
   });
   const [otpForm, setOtpForm] = useState({
-    email: '',
-    otp: '',
+    email: "",
+    otp: "",
   });
-  const [otpStep, setOtpStep] = useState<'email' | 'verify'>('email');
+  const [otpStep, setOtpStep] = useState<"email" | "verify">("email");
   const [isAdminViewOpen, setIsAdminViewOpen] = useState(false);
 
   const selectedTrack = useMemo(
@@ -166,41 +178,41 @@ function AppContent() {
 
     return tracks.filter((track) =>
       [track.title, track.artist, track.album, track.mood]
-        .join(' ')
+        .join(" ")
         .toLowerCase()
         .includes(query),
-      );
+    );
   }, [searchQuery, tracks]);
   const selectedSourceLabel = useMemo(() => {
-    if (selectedPlaylistId.startsWith('artist:')) {
+    if (selectedPlaylistId.startsWith("artist:")) {
       const artist = artists.find(
         (candidate) => candidate.id === selectedPlaylistId.slice(7),
       );
 
-      return artist ? `Artist: ${artist.name}` : 'Artist';
+      return artist ? `Artist: ${artist.name}` : "Artist";
     }
 
-    if (selectedPlaylistId.startsWith('album:')) {
+    if (selectedPlaylistId.startsWith("album:")) {
       const album = albums.find(
         (candidate) => candidate.id === selectedPlaylistId.slice(6),
       );
 
-      return album ? `Album: ${album.title}` : 'Album';
+      return album ? `Album: ${album.title}` : "Album";
     }
 
-    if (selectedPlaylistId === 'favorites') {
-      return 'Liked Songs';
+    if (selectedPlaylistId === "favorites") {
+      return "Liked Songs";
     }
 
-    if (selectedPlaylistId === 'recent') {
-      return 'Recent Plays';
+    if (selectedPlaylistId === "recent") {
+      return "Recent Plays";
     }
 
     const selectedPlaylist = playlists.find(
       (playlist) => playlist.id === selectedPlaylistId,
     );
 
-    return selectedPlaylist?.name ?? 'Library';
+    return selectedPlaylist?.name ?? "Library";
   }, [albums, artists, playlists, selectedPlaylistId]);
 
   useEffect(() => {
@@ -229,8 +241,8 @@ function AppContent() {
     tracksNeedingRuntime.forEach((track) => {
       const audio = new Audio(`${apiBaseUrl}${track.streamUrl}`);
       loadedAudio.push(audio);
-      audio.preload = 'metadata';
-      audio.addEventListener('loadedmetadata', () => {
+      audio.preload = "metadata";
+      audio.addEventListener("loadedmetadata", () => {
         if (isCancelled || !isUsableDuration(audio.duration)) {
           return;
         }
@@ -246,17 +258,19 @@ function AppContent() {
     return () => {
       isCancelled = true;
       loadedAudio.forEach((audio) => {
-        audio.src = '';
+        audio.src = "";
       });
     };
   }, [durationByTrackId, libraryTracks]);
 
   async function loadLibraryTracks(resetPlayback = false) {
     try {
-      const [tracksPayload, artistsPayload, albumsPayload] = await Promise.all([
-        requestJson<TracksResponse>('/tracks'),
-        requestJson<ArtistsResponse>('/tracks/artists').catch(() => null),
-        requestJson<AlbumsResponse>('/tracks/albums').catch(() => null),
+      const [tracksPayload, artistsPayload, albumsPayload, singersPayload, lyricistsPayload] = await Promise.all([
+        requestJson<TracksResponse>("/tracks"),
+        requestJson<ArtistsResponse>("/tracks/artists").catch(() => null),
+        requestJson<AlbumsResponse>("/tracks/albums").catch(() => null),
+        requestJson<any>("/people/singers").catch(() => null),
+        requestJson<any>("/people/lyricists").catch(() => null),
       ]);
 
       if (!tracksPayload.tracks.length) {
@@ -276,6 +290,36 @@ function AppContent() {
           : buildAlbumsFromTracks(tracksPayload.tracks),
       );
 
+      if (singersPayload?.singers) {
+        setSingers(
+          singersPayload.singers.map((s: any) => {
+            const sTracks = tracksPayload.tracks.filter((t: any) => t.singerId === String(s.id) || t.artist === s.name);
+            return {
+              id: String(s.id),
+              name: s.name,
+              imageName: s.imageName,
+              trackCount: sTracks.length,
+              tracks: sTracks
+            };
+          }).filter((s: any) => s.trackCount > 0)
+        );
+      }
+
+      if (lyricistsPayload?.lyricists) {
+        setLyricists(
+          lyricistsPayload.lyricists.map((l: any) => {
+            const lTracks = tracksPayload.tracks.filter((t: any) => t.lyricistId === String(l.id) || t.artist === l.name);
+            return {
+              id: String(l.id),
+              name: l.name,
+              imageName: l.imageName,
+              trackCount: lTracks.length,
+              tracks: lTracks
+            };
+          }).filter((l: any) => l.trackCount > 0)
+        );
+      }
+
       if (resetPlayback) {
         setSelectedTrackId(tracksPayload.tracks[0].id);
         setProgress(0);
@@ -284,7 +328,9 @@ function AppContent() {
         setIsPlaying(false);
       }
     } catch {
-      setNoticeMessage('Local tracks could not be loaded from the backend yet.');
+      setNoticeMessage(
+        "Local tracks could not be loaded from the backend yet.",
+      );
     }
   }
 
@@ -293,7 +339,7 @@ function AppContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-useEffect(() => {
+  useEffect(() => {
     if (!session) {
       return;
     }
@@ -303,14 +349,14 @@ useEffect(() => {
   }, [session]);
 
   useEffect(() => {
-    if (view === 'login') {
-      setOtpStep('email');
-      setOtpForm({ email: '', otp: '' });
+    if (view === "login") {
+      setOtpStep("email");
+      setOtpForm({ email: "", otp: "" });
     }
   }, [view]);
 
   useEffect(() => {
-    if (selectedPlaylistId.startsWith('artist:')) {
+    if (selectedPlaylistId.startsWith("artist:")) {
       const artist = artists.find(
         (candidate) => candidate.id === selectedPlaylistId.slice(7),
       );
@@ -318,7 +364,7 @@ useEffect(() => {
       return;
     }
 
-    if (selectedPlaylistId.startsWith('album:')) {
+    if (selectedPlaylistId.startsWith("album:")) {
       const album = albums.find(
         (candidate) => candidate.id === selectedPlaylistId.slice(6),
       );
@@ -326,17 +372,17 @@ useEffect(() => {
       return;
     }
 
-    if (selectedPlaylistId === 'library') {
+    if (selectedPlaylistId === "library") {
       setTracks(libraryTracks);
       return;
     }
 
-    if (selectedPlaylistId === 'favorites') {
+    if (selectedPlaylistId === "favorites") {
       setTracks(favoriteTracks.length ? favoriteTracks : libraryTracks);
       return;
     }
 
-    if (selectedPlaylistId === 'recent') {
+    if (selectedPlaylistId === "recent") {
       setTracks(recentTracks.length ? recentTracks : libraryTracks);
       return;
     }
@@ -344,7 +390,9 @@ useEffect(() => {
     const selectedPlaylist = playlists.find(
       (playlist) => playlist.id === selectedPlaylistId,
     );
-    setTracks(selectedPlaylist?.tracks.length ? selectedPlaylist.tracks : libraryTracks);
+    setTracks(
+      selectedPlaylist?.tracks.length ? selectedPlaylist.tracks : libraryTracks,
+    );
   }, [
     favoriteTracks,
     albums,
@@ -357,7 +405,7 @@ useEffect(() => {
 
   useEffect(() => {
     if (!playlists.length) {
-      setAddToPlaylistId('');
+      setAddToPlaylistId("");
       return;
     }
 
@@ -376,7 +424,7 @@ useEffect(() => {
 
     const parsedSession = JSON.parse(storedSession) as SessionState;
 
-    void requestJson<{ user: SessionUser }>('/auth/me', {
+    void requestJson<{ user: SessionUser }>("/auth/me", {
       headers: {
         Authorization: `Bearer ${parsedSession.accessToken}`,
       },
@@ -421,7 +469,7 @@ useEffect(() => {
     setCurrentTime(0);
     setDuration(0);
     setProgress(0);
-  }, [selectedTrack?.id, selectedTrack?.streamUrl]);
+  }, [selectedTrack]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -473,22 +521,22 @@ useEffect(() => {
     const [favoritesPayload, recentPayload, playlistsPayload, queuePayload] =
       await Promise.all([
         requestAuthorizedJson<TracksResponse>(
-          '/tracks/favorites/me',
+          "/tracks/favorites/me",
           undefined,
           activeSession,
         ),
         requestAuthorizedJson<TracksResponse>(
-          '/tracks/recent/me',
+          "/tracks/recent/me",
           undefined,
           activeSession,
         ),
         requestAuthorizedJson<PlaylistsResponse>(
-          '/playlists',
+          "/playlists",
           undefined,
           activeSession,
         ),
         requestAuthorizedJson<QueueResponse>(
-          '/tracks/queue/me',
+          "/tracks/queue/me",
           undefined,
           activeSession,
         ),
@@ -501,8 +549,8 @@ useEffect(() => {
   }
 
   function clearFeedback() {
-    setErrorMessage('');
-    setNoticeMessage('');
+    setErrorMessage("");
+    setNoticeMessage("");
   }
 
   function handleApiError(error: unknown) {
@@ -525,21 +573,35 @@ useEffect(() => {
 
   function selectPlaylist(playlistId: string) {
     setSelectedPlaylistId(playlistId);
-    setSearchQuery('');
+    setSearchQuery("");
     setProgress(0);
     setCurrentTime(0);
   }
 
   function selectArtist(artistId: string) {
     setSelectedPlaylistId(`artist:${artistId}`);
-    setSearchQuery('');
+    setSearchQuery("");
+    setProgress(0);
+    setCurrentTime(0);
+  }
+
+  function selectSinger(singerId: string) {
+    setSelectedPlaylistId(`singer:${singerId}`);
+    setSearchQuery("");
+    setProgress(0);
+    setCurrentTime(0);
+  }
+
+  function selectLyricist(lyricistId: string) {
+    setSelectedPlaylistId(`lyricist:${lyricistId}`);
+    setSearchQuery("");
     setProgress(0);
     setCurrentTime(0);
   }
 
   function selectAlbum(albumId: string) {
     setSelectedPlaylistId(`album:${albumId}`);
-    setSearchQuery('');
+    setSearchQuery("");
     setProgress(0);
     setCurrentTime(0);
   }
@@ -554,7 +616,7 @@ useEffect(() => {
       void requestAuthorizedJson<QueueResponse>(
         `/tracks/queue/${queuedItem.id}`,
         {
-          method: 'DELETE',
+          method: "DELETE",
         },
       )
         .then((payload) => setQueueItems(payload.queue))
@@ -584,7 +646,7 @@ useEffect(() => {
     );
     const nextIndex = currentIndex + 1;
 
-    if (nextIndex >= playbackTracks.length && repeatMode === 'off') {
+    if (nextIndex >= playbackTracks.length && repeatMode === "off") {
       setIsPlaying(false);
       return;
     }
@@ -612,7 +674,7 @@ useEffect(() => {
 
   function togglePlayback() {
     if (!selectedTrack?.streamUrl) {
-      setErrorMessage('This track does not have a backend audio file yet.');
+      setErrorMessage("This track does not have a backend audio file yet.");
       return;
     }
 
@@ -620,7 +682,7 @@ useEffect(() => {
   }
 
   function toggleRepeatMode() {
-    setRepeatMode((current) => (current === 'one' ? 'off' : 'one'));
+    setRepeatMode((current) => (current === "one" ? "off" : "one"));
   }
 
   function seekToProgress(value: number) {
@@ -670,14 +732,14 @@ useEffect(() => {
     try {
       if (isFavorite) {
         await requestAuthorizedJson(`/tracks/${trackId}/favorite`, {
-          method: 'DELETE',
+          method: "DELETE",
         });
         setFavoriteTracks((current) =>
           current.filter((track) => track.id !== trackId),
         );
       } else {
         await requestAuthorizedJson(`/tracks/${trackId}/favorite`, {
-          method: 'POST',
+          method: "POST",
         });
         const track =
           libraryTracks.find((candidate) => candidate.id === trackId) ??
@@ -692,7 +754,7 @@ useEffect(() => {
     }
   }
 
-  async function enqueueTrack(trackId: string, mode: 'next' | 'end') {
+  async function enqueueTrack(trackId: string, mode: "next" | "end") {
     if (!session) {
       return;
     }
@@ -701,7 +763,7 @@ useEffect(() => {
       const payload = await requestAuthorizedJson<QueueActionResponse>(
         `/tracks/${trackId}/queue`,
         {
-          method: 'POST',
+          method: "POST",
           body: JSON.stringify({
             mode,
           }),
@@ -716,7 +778,7 @@ useEffect(() => {
 
   async function shareTrack(track: MusicTrack) {
     const shareText = `${track.title} by ${track.artist} on Sonik`;
-    const canShare = typeof navigator.share === 'function';
+    const canShare = typeof navigator.share === "function";
 
     if (canShare) {
       await navigator.share({
@@ -727,7 +789,7 @@ useEffect(() => {
     }
 
     await navigator.clipboard?.writeText(shareText);
-    setNoticeMessage('Track details copied to clipboard.');
+    setNoticeMessage("Track details copied to clipboard.");
   }
 
   async function saveTrackToPlaylist(trackId: string, playlistId?: string) {
@@ -749,7 +811,7 @@ useEffect(() => {
       const payload = await requestAuthorizedJson<PlaylistResponse>(
         `/playlists/${targetPlaylist.id}/tracks/${trackId}`,
         {
-          method: 'POST',
+          method: "POST",
         },
       );
 
@@ -771,12 +833,15 @@ useEffect(() => {
     if (!trimmed) return;
 
     try {
-      const payload = await requestAuthorizedJson<PlaylistResponse>('/playlists', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: trimmed,
-        }),
-      });
+      const payload = await requestAuthorizedJson<PlaylistResponse>(
+        "/playlists",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name: trimmed,
+          }),
+        },
+      );
 
       setPlaylists((current) => [payload.playlist, ...current]);
       setSelectedPlaylistId(payload.playlist.id);
@@ -804,7 +869,7 @@ useEffect(() => {
       const payload = await requestAuthorizedJson<PlaylistResponse>(
         `/playlists/${targetPlaylist.id}/tracks/${selectedTrack?.id}`,
         {
-          method: 'POST',
+          method: "POST",
         },
       );
 
@@ -829,7 +894,7 @@ useEffect(() => {
       const payload = await requestAuthorizedJson<PlaylistResponse>(
         `/playlists/${playlistId}/tracks/${trackId}`,
         {
-          method: 'DELETE',
+          method: "DELETE",
         },
       );
 
@@ -849,7 +914,7 @@ useEffect(() => {
     }
 
     await requestAuthorizedJson(`/tracks/${selectedTrack?.id}/recent`, {
-      method: 'POST',
+      method: "POST",
       body: JSON.stringify({
         progressSeconds: Math.floor(currentTime),
         completed,
@@ -862,7 +927,7 @@ useEffect(() => {
   function handleTrackEnded() {
     void recordCurrentPlay(true);
 
-    if (repeatMode === 'one') {
+    if (repeatMode === "one") {
       const audio = audioRef.current;
 
       if (audio) {
@@ -881,8 +946,8 @@ useEffect(() => {
     setIsSubmitting(true);
 
     try {
-      const payload = await requestJson<AuthResponse>('/auth/login', {
-        method: 'POST',
+      const payload = await requestJson<AuthResponse>("/auth/login", {
+        method: "POST",
         body: JSON.stringify(loginForm),
       });
 
@@ -898,16 +963,16 @@ useEffect(() => {
     }
   }
 
-  async function handleSendOtp(email: string, purpose: 'signup' | 'reset') {
+  async function handleSendOtp(email: string, purpose: "signup" | "reset") {
     clearFeedback();
 
-    if (purpose === 'signup') {
+    if (purpose === "signup") {
       if (!registerForm.profileName || !registerForm.password) {
-        setErrorMessage('Please fill in all fields.');
+        setErrorMessage("Please fill in all fields.");
         return;
       }
       if (registerForm.password !== registerForm.confirmPassword) {
-        setErrorMessage('Passwords do not match.');
+        setErrorMessage("Passwords do not match.");
         return;
       }
     }
@@ -916,16 +981,16 @@ useEffect(() => {
 
     try {
       const payload = await requestJson<{ message: string; devOtp?: string }>(
-        '/auth/send-otp',
+        "/auth/send-otp",
         {
-          method: 'POST',
+          method: "POST",
           body: JSON.stringify({ email, purpose }),
         },
       );
 
       setOtpForm((current) => ({ ...current, email }));
-      setOtpStep('verify');
-      const devSuffix = payload.devOtp ? ` (dev: ${payload.devOtp})` : '';
+      setOtpStep("verify");
+      const devSuffix = payload.devOtp ? ` (dev: ${payload.devOtp})` : "";
       setNoticeMessage(`Verification code sent to ${email}${devSuffix}`);
     } catch (error) {
       handleApiError(error);
@@ -940,15 +1005,18 @@ useEffect(() => {
     setIsSubmitting(true);
 
     try {
-      const payload = await requestJson<AuthResponse>('/auth/verify-otp-signup', {
-        method: 'POST',
-        body: JSON.stringify({
-          profileName: registerForm.profileName,
-          email: otpForm.email,
-          password: registerForm.password,
-          otp: otpForm.otp,
-        }),
-      });
+      const payload = await requestJson<AuthResponse>(
+        "/auth/verify-otp-signup",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            profileName: registerForm.profileName,
+            email: otpForm.email,
+            password: registerForm.password,
+            otp: otpForm.otp,
+          }),
+        },
+      );
 
       persistSession({
         accessToken: payload.accessToken,
@@ -962,20 +1030,25 @@ useEffect(() => {
     }
   }
 
-  async function handleVerifyOtpResetPassword(event: FormEvent<HTMLFormElement>) {
+  async function handleVerifyOtpResetPassword(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
     clearFeedback();
     setIsSubmitting(true);
 
     try {
-      const payload = await requestJson<AuthResponse>('/auth/verify-otp-reset-password', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: otpForm.email,
-          otp: otpForm.otp,
-          newPassword: resetForm.newPassword,
-        }),
-      });
+      const payload = await requestJson<AuthResponse>(
+        "/auth/verify-otp-reset-password",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            email: otpForm.email,
+            otp: otpForm.otp,
+            newPassword: resetForm.newPassword,
+          }),
+        },
+      );
 
       persistSession({
         accessToken: payload.accessToken,
@@ -995,10 +1068,10 @@ useEffect(() => {
     }
 
     const confirmed = await confirm({
-      title: 'Delete your account?',
+      title: "Delete your account?",
       message:
-        'This permanently removes your playlists, favorites, queue, and play history. This cannot be undone.',
-      confirmLabel: 'Delete account',
+        "This permanently removes your playlists, favorites, queue, and play history. This cannot be undone.",
+      confirmLabel: "Delete account",
       destructive: true,
     });
 
@@ -1010,8 +1083,8 @@ useEffect(() => {
     setIsSubmitting(true);
 
     try {
-      await requestAuthorizedJson('/auth/account', {
-        method: 'DELETE',
+      await requestAuthorizedJson("/auth/account", {
+        method: "DELETE",
       });
 
       logout();
@@ -1022,19 +1095,77 @@ useEffect(() => {
     }
   }
 
+  async function handleUpdateProfile(updates: { profileName?: string; birthday?: string | null; language?: string }) {
+    if (!session) return;
+    const sanitizedUpdates = {
+      ...updates,
+      birthday: updates.birthday === "" ? null : updates.birthday,
+    };
+    try {
+      const result = await requestAuthorizedJson<{ message: string; user: SessionUser }>("/auth/profile", {
+        method: "PATCH",
+        body: JSON.stringify(sanitizedUpdates),
+      });
+      if (session) {
+        persistSession({ ...session, user: result.user });
+      }
+      return result;
+    } catch (error) {
+      handleApiError(error);
+      throw error;
+    }
+  }
+
+  async function handleChangePassword(currentPassword: string, newPassword: string) {
+    if (!session) return;
+    try {
+      const result = await requestAuthorizedJson<{ message: string }>("/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      return result;
+    } catch (error) {
+      handleApiError(error);
+      throw error;
+    }
+  }
+
+  async function handleUploadAvatar(file: File) {
+    if (!session) return;
+    const formData = new FormData();
+    formData.append("avatar", file);
+    try {
+      const result = await requestJson<{ message: string; user: SessionUser }>(
+        "/auth/avatar",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.accessToken}` },
+          body: formData,
+        },
+      );
+      if (session) {
+        persistSession({ ...session, user: result.user });
+      }
+      return result;
+    } catch (error) {
+      handleApiError(error);
+      throw error;
+    }
+  }
+
   async function handleGoogleSuccess(credentialResponse: CredentialResponse) {
     clearFeedback();
 
     if (!credentialResponse.credential) {
-      setErrorMessage('Google sign-in could not be completed.');
+      setErrorMessage("Google sign-in could not be completed.");
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const payload = await requestJson<AuthResponse>('/auth/google', {
-        method: 'POST',
+      const payload = await requestJson<AuthResponse>("/auth/google", {
+        method: "POST",
         body: JSON.stringify({
           idToken: credentialResponse.credential,
         }),
@@ -1059,17 +1190,17 @@ useEffect(() => {
     setRecentTracks([]);
     setPlaylists([]);
     setQueueItems([]);
-    setSelectedPlaylistId('library');
-    setAddToPlaylistId('');
-    setView('login');
+    setSelectedPlaylistId("library");
+    setAddToPlaylistId("");
+    setView("login");
     setResetForm({
-      newPassword: '',
+      newPassword: "",
     });
     clearFeedback();
   }
 
   function toggleThemeMode() {
-    setThemeMode((current) => (current === 'dark' ? 'light' : 'dark'));
+    setThemeMode((current) => (current === "dark" ? "light" : "dark"));
   }
 
   if (isBootstrapping) {
@@ -1083,13 +1214,18 @@ useEffect(() => {
     );
   }
 
-  if (session && isAdminViewOpen && session.user.role === 'admin') {
+  const refetchOnScreenClose = () => {
+    setIsAdminViewOpen(false);
+    window.location.reload();
+  };
+
+  if (session && isAdminViewOpen && session.user.role === "admin") {
     return (
       <div className={`app-theme theme-${themeMode}`}>
         <AdminScreen
           session={session}
           tracks={libraryTracks}
-          onClose={() => setIsAdminViewOpen(false)}
+          onClose={refetchOnScreenClose}
           onTrackUploaded={() => {
             void loadLibraryTracks();
           }}
@@ -1131,6 +1267,10 @@ useEffect(() => {
           playlists={playlists}
           artists={artists}
           albums={albums}
+          singers={singers}
+          lyricists={lyricists}
+          onSelectSinger={selectSinger}
+          onSelectLyricist={selectLyricist}
           queueItems={queueItems}
           selectedPlaylistId={selectedPlaylistId}
           selectedSourceLabel={selectedSourceLabel}
@@ -1157,9 +1297,11 @@ useEffect(() => {
           onSaveTrackToPlaylist={saveTrackToPlaylist}
           onRemoveFromPlaylist={removeTrackFromPlaylist}
           onToggleFavorite={toggleFavorite}
-          onPlayNext={(trackId) => void enqueueTrack(trackId, 'next')}
-          onAddToQueue={(trackId) => void enqueueTrack(trackId, 'end')}
-          onShareTrack={(track) => void shareTrack(track).catch(() => undefined)}
+          onPlayNext={(trackId) => void enqueueTrack(trackId, "next")}
+          onAddToQueue={(trackId) => void enqueueTrack(trackId, "end")}
+          onShareTrack={(track) =>
+            void shareTrack(track).catch(() => undefined)
+          }
           onProgressChange={seekToProgress}
           onPlayToggle={togglePlayback}
           onNext={selectNextTrack}
@@ -1168,10 +1310,13 @@ useEffect(() => {
           onRepeatToggle={toggleRepeatMode}
           onVolumeChange={setVolume}
           onLoadedMetadata={syncAudioMetadata}
-onTimeUpdate={syncAudioTime}
+          onTimeUpdate={syncAudioTime}
           onEnded={handleTrackEnded}
           onLogout={logout}
           onDeleteAccount={handleDeleteAccount}
+          onUpdateProfile={handleUpdateProfile}
+          onChangePassword={handleChangePassword}
+          onUploadAvatar={handleUploadAvatar}
           themeMode={themeMode}
           onThemeToggle={toggleThemeMode}
         />
@@ -1183,8 +1328,8 @@ onTimeUpdate={syncAudioTime}
     setView(val);
     setRegisterForm((pre: any) => ({
       ...pre,
-      password: '',
-      confirmPassword: '',
+      password: "",
+      confirmPassword: "",
     }));
   };
 
@@ -1193,7 +1338,7 @@ onTimeUpdate={syncAudioTime}
       <AccessScreen
         view={view}
         activeForm={
-<AuthForms
+          <AuthForms
             view={view}
             isSubmitting={isSubmitting}
             loginForm={loginForm}
@@ -1217,7 +1362,7 @@ onTimeUpdate={syncAudioTime}
         onClearFeedback={clearFeedback}
         onGoogleSuccess={handleGoogleSuccess}
         onGoogleError={() =>
-          setErrorMessage('Google sign-in could not be completed.')
+          setErrorMessage("Google sign-in could not be completed.")
         }
         themeMode={themeMode}
         onThemeToggle={toggleThemeMode}

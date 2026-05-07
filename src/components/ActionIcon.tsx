@@ -17,6 +17,11 @@ export function ActionIcon({ name }: { name: ActionIconName }) {
     share: ['M18 8a3 3 0 1 0-2.8-4', 'M6 15a3 3 0 1 0 2.8 4', 'M8.6 15.9l6.8-3.8', 'M15.4 8.1 8.6 4.3'],
     artist: ['M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z', 'M4 21a8 8 0 0 1 16 0'],
     album: ['M5 4h14v16H5z', 'M9 8h6', 'M9 12h6', 'M9 16h3'],
+    play: ['M8 5v14l11-7L8 5Z'],
+    pause: ['M8 5v14', 'M16 5v14'],
+    grid: ['M4 4h6v6H4z', 'M14 4h6v6h-6z', 'M14 14h6v6h-6z', 'M4 14h6v6H4z'],
+    list: ['M8 6h12', 'M8 12h12', 'M8 18h12', 'M4 6h.01', 'M4 12h.01', 'M4 18h.01'],
+    'more-vertical': ['M12 5v.01', 'M12 12v.01', 'M12 19v.01'],
   };
 
   return (

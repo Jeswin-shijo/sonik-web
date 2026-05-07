@@ -31,6 +31,9 @@ export type SessionUser = {
   authProvider: AuthProvider;
   role: UserRole;
   googleConnected: boolean;
+  birthday?: string | null;
+  language?: string;
+  avatarUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -70,6 +73,9 @@ export type MusicTrack = {
   coverClass: string;
   coverUrl?: string | null;
   streamUrl?: string;
+  singerId?: string;
+  lyricistId?: string;
+  artistId?: string;
 };
 
 export type PlaylistSummary = {
@@ -85,6 +91,22 @@ export type ArtistSummary = {
   name: string;
   trackCount: number;
   albumCount: number;
+  tracks: MusicTrack[];
+};
+
+export type SingerSummary = {
+  id: string;
+  name: string;
+  imageName: string | null;
+  trackCount: number;
+  tracks: MusicTrack[];
+};
+
+export type LyricistSummary = {
+  id: string;
+  name: string;
+  imageName: string | null;
+  trackCount: number;
   tracks: MusicTrack[];
 };
 
@@ -142,6 +164,11 @@ export type ActionIconName =
   | 'play-next'
   | 'share'
   | 'artist'
-  | 'album';
+  | 'album'
+  | 'play'
+  | 'pause'
+  | 'grid'
+  | 'list'
+  | 'more-vertical';
 export type RepeatMode = 'off' | 'all' | 'one';
 export type ThemeMode = 'dark' | 'light';
