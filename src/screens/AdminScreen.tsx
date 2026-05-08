@@ -396,6 +396,14 @@ export function AdminScreen({
       setErrorMessage('Please give the track a title.');
       return;
     }
+    if (audioFile && audioFile.size > 50 * 1024 * 1024) {
+      setErrorMessage('Audio file must be under 50 MB.');
+      return;
+    }
+    if (coverFile && coverFile.size > 5 * 1024 * 1024) {
+      setErrorMessage('Cover image must be under 5 MB.');
+      return;
+    }
 
     const payload = new FormData();
     if (audioFile) payload.append('audio', audioFile);

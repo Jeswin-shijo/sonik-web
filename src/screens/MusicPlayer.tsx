@@ -161,6 +161,21 @@ onEnded: () => void;
   const [passwordMessage, setPasswordMessage] = useState('');
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  const contextSinger = selectedPlaylistId.startsWith('singer:')
+    ? singers?.find((s) => s.id === selectedPlaylistId.slice(7))
+    : null;
+  const contextLyricist = selectedPlaylistId.startsWith('lyricist:')
+    ? lyricists?.find((l) => l.id === selectedPlaylistId.slice(9))
+    : null;
+  const contextArtist = selectedPlaylistId.startsWith('artist:')
+    ? artists.find((a) => a.id === selectedPlaylistId.slice(7))
+    : null;
+  const contextAlbum = selectedPlaylistId.startsWith('album:')
+    ? albums.find((a) => a.id === selectedPlaylistId.slice(6))
+    : null;
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as HTMLElement | null;
@@ -232,19 +247,75 @@ onEnded: () => void;
 
       <header className="sonik-header">
         <a className="brand-lockup" href="/" aria-label="Sonik home">
-          <span className="brand-mark">S</span>
-          <span>Sonik</span>
+          <span className="brand-mark">
+            <svg viewBox="0 0 32 32" width="16" height="16" fill="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="bmlg" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stopColor="#f5c15d" />
+                  <stop offset="0.5" stopColor="#ff8c69" />
+                  <stop offset="1" stopColor="#55d6c2" />
+                </linearGradient>
+              </defs>
+              <rect x="1" y="15" width="5" height="12" rx="2.5" fill="url(#bmlg)" />
+              <rect x="8" y="10" width="5" height="17" rx="2.5" fill="url(#bmlg)" />
+              <rect x="15" y="5" width="5" height="22" rx="2.5" fill="url(#bmlg)" />
+              <rect x="22" y="10" width="5" height="17" rx="2.5" fill="url(#bmlg)" />
+              <rect x="29" y="15" width="5" height="12" rx="2.5" fill="url(#bmlg)" />
+            </svg>
+          </span>
         </a>
 
-        <label className="command-bar" role="search">
-          <span className="control-icon icon-search" aria-hidden="true" />
-          <input
-            aria-label={t('searchPlaceholder')}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder={t('searchPlaceholder')}
-            value={searchQuery}
-          />
-        </label>
+        <div className="search-wrap">
+          <label className="command-bar" role="search">
+            <span className="control-icon icon-search" aria-hidden="true" />
+            <input
+              aria-label={t('searchPlaceholder')}
+              onChange={(event) => onSearchChange(event.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
+              placeholder={t('searchPlaceholder')}
+              value={searchQuery}
+            />
+            {searchQuery && (
+              <button
+                className="search-clear"
+                onClick={() => onSearchChange('')}
+                type="button"
+                aria-label="Clear search"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            )}
+          </label>
+          {(searchFocused || searchQuery.length > 0) && searchQuery.length > 0 && (
+            <div className="search-dropdown">
+              {tracks.length === 0 ? (
+                <div className="search-no-results">No results for "{searchQuery}"</div>
+              ) : (
+                <>
+                  <div className="search-section-label">Tracks ({tracks.length})</div>
+                  {tracks.slice(0, 6).map((track) => (
+                    <button
+                      key={track.id}
+                      className={`search-result-item ${selectedTrackId === track.id ? 'is-playing' : ''}`}
+                      onClick={() => { onSelectTrack(track.id); onSearchChange(''); }}
+                      type="button"
+                    >
+                      <TrackArtwork track={track} className="search-result-art" />
+                      <span className="search-result-meta">
+                        <strong>{track.title}</strong>
+                        <small>{track.artist}</small>
+                      </span>
+                      {selectedTrackId === track.id && isPlaying && (
+                        <span className="mini-eq"><i /><i /><i /></span>
+                      )}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
         <ThemeToggle themeMode={themeMode} onToggle={onThemeToggle} />
 
@@ -302,23 +373,36 @@ onEnded: () => void;
 
       <aside className="control-rail" aria-label="Primary">
         <nav className="nav-stack">
-          {[
-            [t('home'), 'library'],
-            [t('liked'), 'favorites'],
-            [t('recent'), 'recent'],
-          ].map(([item, playlistId]) => (
-            <button
-              className={`nav-item ${
-                selectedPlaylistId === playlistId ? 'is-active' : ''
-              }`}
-              key={item}
-              onClick={() => onSelectPlaylist(playlistId)}
-              type="button"
-            >
-              <span className="nav-dot" />
-              {item}
-            </button>
-          ))}
+          <button
+            className={`nav-item ${selectedPlaylistId === 'library' ? 'is-active' : ''}`}
+            onClick={() => onSelectPlaylist('library')}
+            type="button"
+          >
+            <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            {t('home')}
+          </button>
+          <button
+            className={`nav-item ${selectedPlaylistId === 'favorites' ? 'is-active' : ''}`}
+            onClick={() => onSelectPlaylist('favorites')}
+            type="button"
+          >
+            <svg className="nav-icon" viewBox="0 0 24 24" fill={selectedPlaylistId === 'favorites' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z"/>
+            </svg>
+            {t('liked')}
+          </button>
+          <button
+            className={`nav-item ${selectedPlaylistId === 'recent' ? 'is-active' : ''}`}
+            onClick={() => onSelectPlaylist('recent')}
+            type="button"
+          >
+            <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+            {t('recent')}
+          </button>
         </nav>
 
         <section className="crate-panel">
@@ -392,15 +476,31 @@ onEnded: () => void;
       <main className="music-main">
         <section className="signal-deck" aria-labelledby="hero-title">
           <div className="deck-art-wrap">
-            <TrackArtwork track={selectedTrack} className="hero-art" />
+            {(contextSinger?.imageName || contextLyricist?.imageName) ? (
+              <div className="hero-person-wrap">
+                <img
+                  src={`${apiBaseUrl}/uploads/people/${(contextSinger ?? contextLyricist)!.imageName}`}
+                  alt={(contextSinger ?? contextLyricist)!.name}
+                  className="hero-person-img"
+                />
+              </div>
+            ) : (
+              <TrackArtwork track={selectedTrack} className="hero-art" />
+            )}
             <span className="orbit-ring" />
           </div>
 
           <div className="deck-copy">
             <p className="section-kicker">{t('playingFrom')} {selectedSourceLabel}</p>
-            <h1 id="hero-title">{selectedTrack.title}</h1>
+            <h1 id="hero-title">
+              {contextSinger?.name ?? contextLyricist?.name ?? contextArtist?.name ?? contextAlbum?.title ?? selectedTrack.title}
+            </h1>
             <p>
-              {selectedTrack.artist} - {selectedTrack.album}
+              {contextSinger ? `${contextSinger.trackCount} tracks` :
+               contextLyricist ? `${contextLyricist.trackCount} tracks` :
+               contextArtist ? `${contextArtist.trackCount} tracks · ${contextArtist.albumCount} albums` :
+               contextAlbum ? `${contextAlbum.artist} · ${contextAlbum.trackCount} tracks` :
+               `${selectedTrack.artist} - ${selectedTrack.album}`}
             </p>
             <div className="mood-row">
               <span>{selectedTrack.mood}</span>
@@ -570,7 +670,7 @@ onEnded: () => void;
                   return (
                     <button
                       aria-pressed={isActive}
-                      className={`mix-card${isActive ? ' is-active' : ''}`}
+                      className={`mix-card person-card${isActive ? ' is-active' : ''}`}
                       key={singer.id}
                       onClick={() => onSelectSinger?.(singer.id)}
                       type="button"
@@ -605,7 +705,7 @@ onEnded: () => void;
                   return (
                     <button
                       aria-pressed={isActive}
-                      className={`mix-card${isActive ? ' is-active' : ''}`}
+                      className={`mix-card person-card${isActive ? ' is-active' : ''}`}
                       key={lyricist.id}
                       onClick={() => onSelectLyricist?.(lyricist.id)}
                       type="button"
@@ -673,6 +773,8 @@ onEnded: () => void;
                   candidate.title === track.album &&
                   candidate.artist === track.artist,
               );
+              const singer = singers?.find((s) => s.id === track.singerId);
+              const lyricist = lyricists?.find((l) => l.id === track.lyricistId);
 
               return (
                 <div
@@ -824,6 +926,28 @@ onEnded: () => void;
                         <ActionIcon name="album" />
                         Go to album
                       </button>
+                      <button
+                        disabled={!singer}
+                        onClick={() => {
+                          if (singer) onSelectSinger?.(singer.id);
+                          setOpenMenuTrackId('');
+                        }}
+                        type="button"
+                      >
+                        <ActionIcon name="artist" />
+                        Go to singer
+                      </button>
+                      <button
+                        disabled={!lyricist}
+                        onClick={() => {
+                          if (lyricist) onSelectLyricist?.(lyricist.id);
+                          setOpenMenuTrackId('');
+                        }}
+                        type="button"
+                      >
+                        <ActionIcon name="artist" />
+                        Go to lyricist
+                      </button>
                       <div className="menu-playlist-control">
                         <label>
                           <span>Save to playlist</span>
@@ -885,6 +1009,8 @@ onEnded: () => void;
                     candidate.title === track.album &&
                     candidate.artist === track.artist,
                 );
+                const singer = singers?.find((s) => s.id === track.singerId);
+                const lyricist = lyricists?.find((l) => l.id === track.lyricistId);
 
                 return (
                 <div
@@ -1005,6 +1131,28 @@ onEnded: () => void;
                             <ActionIcon name="album" />
                             Go to album
                           </button>
+                          <button
+                            disabled={!singer}
+                            onClick={() => {
+                              if (singer) onSelectSinger?.(singer.id);
+                              setOpenMenuTrackId('');
+                            }}
+                            type="button"
+                          >
+                            <ActionIcon name="artist" />
+                            Go to singer
+                          </button>
+                          <button
+                            disabled={!lyricist}
+                            onClick={() => {
+                              if (lyricist) onSelectLyricist?.(lyricist.id);
+                              setOpenMenuTrackId('');
+                            }}
+                            type="button"
+                          >
+                            <ActionIcon name="artist" />
+                            Go to lyricist
+                          </button>
                           <div className="menu-playlist-control">
                             <label>
                               <span>Save to playlist</span>
@@ -1112,13 +1260,6 @@ onEnded: () => void;
           {session.user.role === 'admin' ? (
             <span className="role-badge">Admin</span>
           ) : null}
-          <button
-            className="subtle-action full-width danger"
-            onClick={onDeleteAccount}
-            type="button"
-          >
-            {t('deleteAccount')}
-          </button>
           {session.user.role === 'admin' ? (
             <div className='margin-top'>
             <button
@@ -1336,6 +1477,8 @@ onEnded: () => void;
                 candidate.title === track.album &&
                 candidate.artist === track.artist,
             );
+            const singer = singers?.find((s) => s.id === track.singerId);
+            const lyricist = lyricists?.find((l) => l.id === track.lyricistId);
             return (
                 <div className="nowbar-menu-wrap track-menu-wrap">
                   <button
@@ -1417,6 +1560,28 @@ onEnded: () => void;
                       >
                         <ActionIcon name="album" />
                         Go to album
+                      </button>
+                      <button
+                        disabled={!singer}
+                        onClick={() => {
+                          if (singer) onSelectSinger?.(singer.id);
+                          setOpenMenuTrackId('');
+                        }}
+                        type="button"
+                      >
+                        <ActionIcon name="artist" />
+                        Go to singer
+                      </button>
+                      <button
+                        disabled={!lyricist}
+                        onClick={() => {
+                          if (lyricist) onSelectLyricist?.(lyricist.id);
+                          setOpenMenuTrackId('');
+                        }}
+                        type="button"
+                      >
+                        <ActionIcon name="artist" />
+                        Go to lyricist
                       </button>
                       <div className="menu-playlist-control">
                         <label>
