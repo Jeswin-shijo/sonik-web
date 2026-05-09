@@ -1,8 +1,10 @@
 import { formatSeconds, isUsableDuration, selectedDurationLabel } from '../helpers/time';
 import type { RepeatMode } from '../types';
 import { IconButton } from './IconButton';
+import { WaveformScrubber } from './WaveformScrubber';
 
 export function PlayerControls({
+  trackId,
   progress,
   currentTime,
   duration,
@@ -16,6 +18,7 @@ export function PlayerControls({
   onShuffleToggle,
   onRepeatToggle,
 }: {
+  trackId: string;
   progress: number;
   currentTime: number;
   duration: number;
@@ -59,13 +62,11 @@ export function PlayerControls({
       </div>
       <div className="progress-row">
         <span>{formatSeconds(currentTime)}</span>
-        <input
-          aria-label="Playback progress"
-          max="100"
-          min="0"
-          onChange={(event) => onProgressChange(Number(event.target.value))}
-          type="range"
-          value={progress}
+        <WaveformScrubber
+          trackId={trackId}
+          progress={progress}
+          height={48}
+          onSeek={(ratio) => onProgressChange(ratio * 100)}
         />
         <span>
           {isUsableDuration(duration)

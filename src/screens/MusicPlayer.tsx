@@ -20,6 +20,33 @@ import { ThemeToggle } from '../components/ThemeToggle';
 import { TrackArtwork } from '../components/TrackArtwork';
 import { getTranslation } from '../helpers/translations';
 
+function parseDurationToSeconds(d: string): number {
+  if (!d || d.includes('NaN')) return 0;
+  const parts = d.split(':').map(Number);
+  if (parts.some(isNaN)) return 0;
+  if (parts.length === 2) return parts[0]! * 60 + parts[1]!;
+  if (parts.length === 3) return parts[0]! * 3600 + parts[1]! * 60 + parts[2]!;
+  return 0;
+}
+
+function formatTotalDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '--';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes} min`;
+}
+
+function getTopMood(tracks: MusicTrack[]): string | null {
+  const counts: Record<string, number> = {};
+  for (const track of tracks) {
+    if (track.mood) counts[track.mood] = (counts[track.mood] ?? 0) + 1;
+  }
+  const entries = Object.entries(counts);
+  if (!entries.length) return null;
+  return entries.reduce((a, b) => (b[1] > a[1] ? b : a))[0] ?? null;
+}
+
 export function MusicPlayer({
   session,
   audioRef,
@@ -162,6 +189,27 @@ onEnded: () => void;
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [searchFocused, setSearchFocused] = useState(false);
+const [appBannerOpen, setAppBannerOpen] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [pwaPrompt, setPwaPrompt] = useState<any>(null);
+  const [activeDownloadTab, setActiveDownloadTab] = useState<'ios' | 'android' | 'desktop'>(() => {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+    if (/Android/i.test(ua)) return 'android';
+    return 'desktop';
+  });
+  const [preMuteVolume, setPreMuteVolume] = useState<number | null>(null);
+  const isMuted = preMuteVolume !== null;
+
+  function handleMuteToggle() {
+    if (preMuteVolume !== null) {
+      onVolumeChange(preMuteVolume);
+      setPreMuteVolume(null);
+    } else {
+      setPreMuteVolume(volume);
+      onVolumeChange(0);
+    }
+  }
 
   const contextSinger = selectedPlaylistId.startsWith('singer:')
     ? singers?.find((s) => s.id === selectedPlaylistId.slice(7))
@@ -196,10 +244,51 @@ onEnded: () => void;
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [openMenuTrackId, profileMenuOpen]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setPwaPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler as EventListener);
+    return () => window.removeEventListener('beforeinstallprompt', handler as EventListener);
+  }, []);
   const prompt = usePrompt();
   const audioSource = selectedTrack.streamUrl
     ? `${apiBaseUrl}${selectedTrack.streamUrl}`
     : undefined;
+
+  const EXPO_PROJECT_URL = 'https://expo.dev/projects/471ea68e-b3fc-450c-9482-0f5b407c51c8';
+  const ANDROID_APK_URL = 'https://expo.dev/accounts/jeswin123/projects/sonik-mobile-app/builds';
+  const qrUrl = (data: string) =>
+    `https://api.qrserver.com/v1/create-qr-code/?size=180x180&color=fbf7ef&bgcolor=1d1723&data=${encodeURIComponent(data)}`;
+
+  function handleInstallPWA() {
+    if (pwaPrompt) {
+      (pwaPrompt as any).prompt();
+      (pwaPrompt as any).userChoice.then((choice: { outcome: string }) => {
+        if (choice.outcome === 'accepted') setPwaPrompt(null);
+      });
+    }
+  }
+
+  function getAppPlatform() {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/i.test(ua)) return 'Android';
+    if (/Android/i.test(ua)) return 'Android';
+    if (/Mac/i.test(ua)) return 'Mac';
+    if (/Win/i.test(ua)) return 'Windows';
+    if (/Linux/i.test(ua)) return 'Linux';
+    return 'your device';
+  }
+
+  function getGreeting() {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    if (h < 21) return 'Good evening';
+    return 'Good night';
+  }
 
   async function handleCreatePlaylist() {
     const name = await prompt({
@@ -231,6 +320,11 @@ onEnded: () => void;
   const likedPercent = tracks.length
     ? Math.round((favoriteTrackIds.length / tracks.length) * 100)
     : 0;
+  const totalDuration = formatTotalDuration(
+    tracks.reduce((sum, t) => sum + parseDurationToSeconds(durationByTrackId[t.id] ?? t.duration), 0),
+  );
+  const uniqueArtistCount = new Set(tracks.map((t) => t.artist)).size;
+  const topMood = getTopMood(tracks);
   const queuedTracks = queueItems.map((queueItem) => queueItem.track);
 
   return (
@@ -248,21 +342,23 @@ onEnded: () => void;
       <header className="sonik-header">
         <a className="brand-lockup" href="/" aria-label="Sonik home">
           <span className="brand-mark">
-            <svg viewBox="0 0 32 32" width="16" height="16" fill="none" aria-hidden="true">
+            <svg viewBox="0 0 1024 1024" width="32" height="32" fill="none" aria-hidden="true">
               <defs>
-                <linearGradient id="bmlg" x1="0" y1="0" x2="1" y2="0">
+                <linearGradient id="bmlg" x1="215" y1="0" x2="809" y2="0" gradientUnits="userSpaceOnUse">
                   <stop offset="0" stopColor="#f5c15d" />
                   <stop offset="0.5" stopColor="#ff8c69" />
                   <stop offset="1" stopColor="#55d6c2" />
                 </linearGradient>
               </defs>
-              <rect x="1" y="15" width="5" height="12" rx="2.5" fill="url(#bmlg)" />
-              <rect x="8" y="10" width="5" height="17" rx="2.5" fill="url(#bmlg)" />
-              <rect x="15" y="5" width="5" height="22" rx="2.5" fill="url(#bmlg)" />
-              <rect x="22" y="10" width="5" height="17" rx="2.5" fill="url(#bmlg)" />
-              <rect x="29" y="15" width="5" height="12" rx="2.5" fill="url(#bmlg)" />
+              <rect width="1024" height="1024" rx="236" fill="#120f18" />
+              <rect x="215" y="404" width="90" height="216" rx="45" fill="url(#bmlg)" />
+              <rect x="341" y="359" width="90" height="306" rx="45" fill="url(#bmlg)" />
+              <rect x="467" y="314" width="90" height="396" rx="45" fill="url(#bmlg)" />
+              <rect x="593" y="359" width="90" height="306" rx="45" fill="url(#bmlg)" />
+              <rect x="719" y="404" width="90" height="216" rx="45" fill="url(#bmlg)" />
             </svg>
           </span>
+          <span className="header-greeting">{getGreeting()}, {session.user.profileName.split(' ')[0]}</span>
         </a>
 
         <div className="search-wrap">
@@ -317,6 +413,21 @@ onEnded: () => void;
           )}
         </div>
 
+        <button
+          className={`header-install-btn${appBannerOpen ? ' is-active' : ''}`}
+          type="button"
+          onClick={() => setAppBannerOpen((o) => !o)}
+          aria-expanded={appBannerOpen}
+          title="Install Sonik app"
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Install App
+        </button>
+
         <ThemeToggle themeMode={themeMode} onToggle={onThemeToggle} />
 
         <div className="account-menu">
@@ -336,10 +447,33 @@ onEnded: () => void;
               <span className="avatar">{session.user.profileName.charAt(0).toUpperCase()}</span>
             )}
           </button>
-          <span>{session.user.profileName}</span>
 
           {profileMenuOpen && (
             <div className="profile-dropdown-menu">
+              {/* Profile header */}
+              <div className="dropdown-profile-header">
+                <div className="dropdown-avatar">
+                  {session.user.avatarUrl ? (
+                    <img
+                      src={session.user.avatarUrl.startsWith('http') ? session.user.avatarUrl : `${apiBaseUrl}/uploads/avatars/${session.user.avatarUrl}`}
+                      alt={session.user.profileName}
+                      className="dropdown-avatar-img"
+                    />
+                  ) : (
+                    <span className="dropdown-avatar-fallback">
+                      {session.user.profileName.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="dropdown-profile-info">
+                  <strong>{session.user.profileName}</strong>
+                  <span>{session.user.email}</span>
+                </div>
+              </div>
+
+              <div className="dropdown-divider" />
+
+              {/* Menu items */}
               <button
                 onClick={() => {
                   setShowSettings(true);
@@ -355,15 +489,27 @@ onEnded: () => void;
                 }}
                 type="button"
               >
-                <ActionIcon name="heart" /> {t('settings')}
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                {t('settings')}
               </button>
+
               {session.user.role === 'admin' && (
                 <button onClick={() => { setProfileMenuOpen(false); onOpenAdmin(); }} type="button">
-                   {t('adminPanel')}
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                  {t('adminPanel')}
                 </button>
               )}
-              <hr />
+
+              <div className="dropdown-divider" />
+
               <button onClick={() => { setProfileMenuOpen(false); onLogout(); }} type="button" className="danger">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
                 {t('logOut')}
               </button>
             </div>
@@ -466,16 +612,64 @@ onEnded: () => void;
           <span>
             {selectedPlaylist ? selectedPlaylist.name : 'tracks in view'}
           </span>
-          <div className="pulse-stat-row">
+          <div className="pulse-meta-row">
+            <span>{totalDuration}</span>
+            <span>{uniqueArtistCount} artists</span>
+          </div>
+          <div className="pulse-liked-row">
             <span>{favoriteTrackIds.length} liked</span>
+            <div className="pulse-bar-track">
+              <div
+                className="pulse-bar-fill"
+                style={{ width: `${likedPercent}%` }}
+              />
+            </div>
             <span>{likedPercent}%</span>
           </div>
+          {topMood && (
+            <div className="pulse-mood">
+              <span className="pulse-mood-label">top mood</span>
+              <span className="pulse-mood-value">{topMood}</span>
+            </div>
+          )}
         </section>
       </aside>
 
       <main className="music-main">
+        <div className={`app-accordion-body${appBannerOpen ? ' is-open' : ''}`}>
+              <div className="app-download-card">
+                <div className="app-download-icon" aria-hidden="true">
+                  <svg viewBox="0 0 34 27" width="28" height="28" fill="none">
+                    <defs>
+                      <linearGradient id="adlg" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0" stopColor="#f5c15d" />
+                        <stop offset="0.5" stopColor="#ff8c69" />
+                        <stop offset="1" stopColor="#55d6c2" />
+                      </linearGradient>
+                    </defs>
+                    <rect x="1" y="15" width="5" height="12" rx="2.5" fill="url(#adlg)" />
+                    <rect x="8" y="10" width="5" height="17" rx="2.5" fill="url(#adlg)" />
+                    <rect x="15" y="5" width="5" height="22" rx="2.5" fill="url(#adlg)" />
+                    <rect x="22" y="10" width="5" height="17" rx="2.5" fill="url(#adlg)" />
+                    <rect x="29" y="15" width="5" height="12" rx="2.5" fill="url(#adlg)" />
+                  </svg>
+                </div>
+                <div className="app-download-copy">
+                  <h3>Get Sonik for {getAppPlatform()}</h3>
+                  <p>Better audio quality, offline playback, and your full library — always with you.</p>
+                </div>
+                <button
+                  className="app-download-btn"
+                  type="button"
+                  onClick={() => setShowDownloadModal(true)}
+                >
+                  Download the free app
+                </button>
+              </div>
+          </div>
+
         <section className="signal-deck" aria-labelledby="hero-title">
-          <div className="deck-art-wrap">
+          <div className={`deck-art-wrap${isPlaying ? ' is-playing' : ''}`}>
             {(contextSinger?.imageName || contextLyricist?.imageName) ? (
               <div className="hero-person-wrap">
                 <img
@@ -491,7 +685,10 @@ onEnded: () => void;
           </div>
 
           <div className="deck-copy">
-            <p className="section-kicker">{t('playingFrom')} {selectedSourceLabel}</p>
+            <p className="section-kicker">
+              {isPlaying && <span className="mini-eq" aria-hidden="true"><i /><i /><i /></span>}
+              {t('playingFrom')} {selectedSourceLabel}
+            </p>
             <h1 id="hero-title">
               {contextSinger?.name ?? contextLyricist?.name ?? contextArtist?.name ?? contextAlbum?.title ?? selectedTrack.title}
             </h1>
@@ -950,7 +1147,7 @@ onEnded: () => void;
                       </button>
                       <div className="menu-playlist-control">
                         <label>
-                          <span>Save to playlist</span>
+                          <span>Add to playlist</span>
                           <select
                             disabled={!playlists.length}
                             onChange={(event) =>
@@ -1028,6 +1225,9 @@ onEnded: () => void;
                 >
                   <div className="track-grid-art-wrap">
                     <TrackArtwork track={track} className="track-art" />
+                    {selectedTrackId === track.id && isPlaying && (
+                      <span className="mini-eq track-grid-eq" aria-label="Playing"><i /><i /><i /></span>
+                    )}
                     <button
                       className="track-grid-play"
                       onClick={(event) => {
@@ -1155,7 +1355,7 @@ onEnded: () => void;
                           </button>
                           <div className="menu-playlist-control">
                             <label>
-                              <span>Save to playlist</span>
+                              <span>Add to playlist</span>
                               <select
                                 disabled={!playlists.length}
                                 onChange={(event) =>
@@ -1202,6 +1402,198 @@ onEnded: () => void;
           )}
         </section>
       </main>
+
+      {showDownloadModal && (
+        <div
+          className="dl-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Download Sonik"
+          onClick={() => setShowDownloadModal(false)}
+        >
+          <div className="dl-modal" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="dl-header">
+              <div className="dl-brand">
+                <span className="brand-mark">
+                  <svg viewBox="0 0 1024 1024" width="36" height="36" fill="none" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="dllg" x1="215" y1="0" x2="809" y2="0" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stopColor="#f5c15d" />
+                        <stop offset="0.5" stopColor="#ff8c69" />
+                        <stop offset="1" stopColor="#55d6c2" />
+                      </linearGradient>
+                    </defs>
+                    <rect width="1024" height="1024" rx="236" fill="#120f18" />
+                    <rect x="215" y="404" width="90" height="216" rx="45" fill="url(#dllg)" />
+                    <rect x="341" y="359" width="90" height="306" rx="45" fill="url(#dllg)" />
+                    <rect x="467" y="314" width="90" height="396" rx="45" fill="url(#dllg)" />
+                    <rect x="593" y="359" width="90" height="306" rx="45" fill="url(#dllg)" />
+                    <rect x="719" y="404" width="90" height="216" rx="45" fill="url(#dllg)" />
+                  </svg>
+                </span>
+                <div>
+                  <strong className="dl-brand-name">Sonik</strong>
+                  <p className="dl-brand-sub">Get the full experience on any device</p>
+                </div>
+              </div>
+              <button
+                className="dl-close"
+                type="button"
+                onClick={() => setShowDownloadModal(false)}
+                aria-label="Close"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Platform tabs */}
+            <div className="dl-tabs" role="tablist">
+              {(['ios', 'android', 'desktop'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  role="tab"
+                  aria-selected={activeDownloadTab === tab}
+                  className={`dl-tab${activeDownloadTab === tab ? ' is-active' : ''}`}
+                  onClick={() => setActiveDownloadTab(tab)}
+                  type="button"
+                >
+                  {tab === 'ios' && (
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+                      <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                    </svg>
+                  )}
+                  {tab === 'android' && (
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+                      <path d="M17.523 15.341 15.5 11.5l2.023-3.841A1 1 0 0 0 16.65 6.5l-2.1 3.99L12 12l-2.55-1.51L7.35 6.5a1 1 0 0 0-1.873 1.159L7.5 11.5l-2.023 3.841a1 1 0 0 0 1.873.818L9.45 12.51 12 14l2.55 1.51 2.1 3.99a1 1 0 0 0 1.873-.818zM8.5 5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm7 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
+                    </svg>
+                  )}
+                  {tab === 'desktop' && (
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                      <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                    </svg>
+                  )}
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* iOS panel */}
+            {activeDownloadTab === 'ios' && (
+              <div className="dl-panel fade-in-up" role="tabpanel">
+                <div className="dl-qr-wrap">
+                  <img
+                    src={qrUrl('https://apps.apple.com')}
+                    alt="QR code for iOS download"
+                    className="dl-qr"
+                    width="160"
+                    height="160"
+                  />
+                  <p className="dl-qr-hint">Scan with your iPhone camera</p>
+                </div>
+                <div className="dl-panel-info">
+                  <h3>Download on the App Store</h3>
+                  <p>Requires iOS 15 or later. Compatible with iPhone and iPad.</p>
+                  <a
+                    className="dl-store-btn dl-apple-btn"
+                    href="https://apps.apple.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                      <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                    </svg>
+                    App Store
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* Android panel */}
+            {activeDownloadTab === 'android' && (
+              <div className="dl-panel fade-in-up" role="tabpanel">
+                <div className="dl-qr-wrap">
+                  <img
+                    src={qrUrl(EXPO_PROJECT_URL)}
+                    alt="QR code for Android download"
+                    className="dl-qr"
+                    width="160"
+                    height="160"
+                  />
+                  <p className="dl-qr-hint">Scan with your Android camera</p>
+                </div>
+                <div className="dl-panel-info">
+                  <h3>Download for Android</h3>
+                  <p>Get the APK directly or find us on the Play Store soon.</p>
+                  <div className="dl-btn-row">
+                    <a
+                      className="dl-store-btn dl-apk-btn"
+                      href={ANDROID_APK_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                      </svg>
+                      Download APK
+                    </a>
+                    <a
+                      className="dl-store-btn dl-play-btn"
+                      href="https://play.google.com/store"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                        <path d="m3 3 18 9-18 9V3z"/>
+                      </svg>
+                      Google Play
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Desktop panel */}
+            {activeDownloadTab === 'desktop' && (
+              <div className="dl-panel dl-desktop-panel fade-in-up" role="tabpanel">
+                <div className="dl-desktop-graphic" aria-hidden="true">
+                  <svg viewBox="0 0 80 60" width="80" height="60" fill="none">
+                    <rect x="4" y="4" width="72" height="44" rx="5" fill="var(--surface-raised)" stroke="var(--border-strong)" strokeWidth="1.5"/>
+                    <rect x="10" y="10" width="60" height="32" rx="3" fill="var(--bg)"/>
+                    <rect x="30" y="50" width="20" height="3" rx="1.5" fill="var(--border-strong)"/>
+                    <rect x="14" y="14" width="24" height="24" rx="3" fill="var(--surface-warm)" opacity=".6"/>
+                    <rect x="44" y="14" width="20" height="6" rx="2" fill="var(--border-strong)" opacity=".5"/>
+                    <rect x="44" y="24" width="14" height="4" rx="2" fill="var(--border-strong)" opacity=".35"/>
+                    <rect x="44" y="32" width="16" height="4" rx="2" fill="var(--border-strong)" opacity=".35"/>
+                  </svg>
+                </div>
+                <div className="dl-panel-info">
+                  <h3>Install on Desktop</h3>
+                  <p>Install Sonik as a Progressive Web App for a native-like experience — no browser chrome, works offline.</p>
+                  {pwaPrompt ? (
+                    <button
+                      className="dl-store-btn dl-pwa-btn"
+                      type="button"
+                      onClick={handleInstallPWA}
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                      </svg>
+                      Install App
+                    </button>
+                  ) : (
+                    <p className="dl-pwa-hint">
+                      Open Sonik in <strong>Chrome</strong> or <strong>Edge</strong>, then click the install icon in the address bar.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <aside className="right-rail" aria-label="Listening queue">
         <section className="rail-section">
@@ -1455,13 +1847,14 @@ onEnded: () => void;
         </div>
       )}
 
-      <footer className="nowbar" aria-label="Playback controls">
+      <footer className={`nowbar${isPlaying ? ' is-playing' : ''}`} aria-label="Playback controls">
         <div className="nowbar-track">
           <TrackArtwork track={selectedTrack} className="row-art" />
-          <span>
-            <strong>{selectedTrack.title}</strong>
-            <small>{selectedTrack.artist}</small>
-          </span>
+          <div className="nowbar-track-info">
+            <span>
+              <strong>{selectedTrack.title}</strong>
+              <small>{selectedTrack.artist}</small>
+            </span>
           {(() => {
             const track = selectedTrack;
             const menuPlaylistId =
@@ -1585,7 +1978,7 @@ onEnded: () => void;
                       </button>
                       <div className="menu-playlist-control">
                         <label>
-                          <span>Save to playlist</span>
+                          <span>Add to playlist</span>
                           <select
                             disabled={!playlists.length}
                             onChange={(event) =>
@@ -1623,9 +2016,11 @@ onEnded: () => void;
                 </div>
             );
           })()}
+          </div>
         </div>
 
         <PlayerControls
+          trackId={selectedTrackId}
           progress={progress}
           currentTime={currentTime}
           duration={duration}
@@ -1641,14 +2036,23 @@ onEnded: () => void;
         />
 
         <div className="volume-control">
-          <IconButton label="Volume" icon="icon-volume" />
+          <IconButton
+            label={isMuted ? 'Unmute' : 'Mute'}
+            icon={isMuted ? 'icon-mute' : 'icon-volume'}
+            onClick={handleMuteToggle}
+          />
           <input
             aria-label="Volume"
             max="100"
             min="0"
-            onChange={(event) => onVolumeChange(Number(event.target.value))}
+            onChange={(event) => {
+              const val = Number(event.target.value);
+              if (preMuteVolume !== null) setPreMuteVolume(null);
+              onVolumeChange(val);
+            }}
             type="range"
             value={volume}
+            style={{ '--progress': `${volume}%` } as React.CSSProperties}
           />
         </div>
       </footer>

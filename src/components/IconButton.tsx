@@ -34,6 +34,11 @@ export function IconButton({
       'M15.5 8.5a5 5 0 0 1 0 7',
       'M18.5 5.5a9 9 0 0 1 0 13',
     ],
+    'icon-mute': [
+      'M11 5 6 9H3v6h3l5 4V5Z',
+      'M23 9l-6 6',
+      'M17 9l6 6',
+    ],
   };
   const paths = iconPaths[icon];
 

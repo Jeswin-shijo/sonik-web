@@ -16,7 +16,11 @@ function getDummyCoverDataUrl(title: string = 'Unknown') {
     safeTitle.split('').reduce((total, character) => total + character.charCodeAt(0), 0),
   ) % dummyCoverPalettes.length;
   const [first, second, accent] = dummyCoverPalettes[paletteIndex];
-  const initial = safeTitle.trim().charAt(0).toUpperCase() || 'S';
+  const rawInitial = safeTitle.trim().charAt(0).toUpperCase() || 'S';
+  const isDigitOrSymbol = /[^A-Z]/.test(rawInitial);
+  const noteIcon = isDigitOrSymbol
+    ? `<path d="M200 160v160c0 22-18 40-40 40s-40-18-40-40 18-40 40-40c8 0 15 2 22 6V128l160-40v172c0 22-18 40-40 40s-40-18-40-40 18-40 40-40c8 0 15 2 22 6V120z" fill="#fff7ed" opacity=".88"/>`
+    : `<text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" fill="#fff7ed" font-family="Inter, Arial, sans-serif" font-size="150" font-weight="900" opacity=".92">${rawInitial}</text>`;
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
       <defs>
@@ -33,7 +37,7 @@ function getDummyCoverDataUrl(title: string = 'Unknown') {
       <circle cx="118" cy="126" r="130" fill="#ffffff" opacity=".08"/>
       <path d="M132 336c76 32 162 38 254 17" fill="none" stroke="#111827" stroke-width="34" stroke-linecap="round" opacity=".32"/>
       <rect x="148" y="112" width="216" height="248" rx="12" fill="none" stroke="${accent}" stroke-width="12" opacity=".52" transform="rotate(20 256 256)" filter="url(#shadow)"/>
-      <text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" fill="#fff7ed" font-family="Inter, Arial, sans-serif" font-size="150" font-weight="900" opacity=".92">${initial}</text>
+      ${noteIcon}
     </svg>
   `;
 
