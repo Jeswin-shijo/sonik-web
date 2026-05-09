@@ -317,6 +317,7 @@ export function AdminScreen({
         Title: t.title || '',
         Album: t.album || '',
         Genre: t.genre || '',
+        Language: t.language || '',
         Mood: t.mood || '',
         Singer: singers.find(s => String(s.id) === String(t.singerId))?.name || '',
         Artist: artists.find(a => String(a.id) === String(t.artistId))?.name || '',
