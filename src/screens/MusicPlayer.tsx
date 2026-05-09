@@ -1,4 +1,4 @@
-import { RefObject, useEffect, useRef, useState } from 'react';
+import React, { RefObject, useEffect, useRef, useState } from 'react';
 import { apiBaseUrl } from '../config';
 import { usePrompt } from '../components/ConfirmDialog';
 import { formatSeconds, getDurationLabel, isUsableDuration } from '../helpers/time';
@@ -51,12 +51,14 @@ export function MusicPlayer({
   session,
   audioRef,
   tracks,
+  libraryTracks = [],
   favoriteTrackIds,
   playlists,
   artists,
   singers = [],
   lyricists = [],
   albums,
+  languages = [],
   queueItems,
   selectedPlaylistId,
   selectedSourceLabel,
@@ -78,6 +80,7 @@ export function MusicPlayer({
   onSelectSinger,
   onSelectLyricist,
   onSelectAlbum,
+  onSelectLanguage,
   onSearchChange,
   onAddToPlaylistTargetChange,
   onCreatePlaylist,
@@ -106,16 +109,20 @@ onEnded,
   onUploadAvatar,
   themeMode,
   onThemeToggle,
+  notifications = [],
+  onDismissNotification,
 }: {
   session: SessionState;
   audioRef: RefObject<HTMLAudioElement | null>;
   tracks: MusicTrack[];
+  libraryTracks?: MusicTrack[];
   favoriteTrackIds: string[];
   playlists: PlaylistSummary[];
   artists: ArtistSummary[];
   singers?: import('../types').SingerSummary[];
   lyricists?: import('../types').LyricistSummary[];
   albums: AlbumSummary[];
+  languages?: import('../types').LanguageSummary[];
   queueItems: QueueItemSummary[];
   selectedPlaylistId: string;
   selectedSourceLabel: string;
@@ -137,6 +144,7 @@ onEnded,
   onSelectSinger?: (id: string) => void;
   onSelectLyricist?: (id: string) => void;
   onSelectAlbum: (albumId: string) => void;
+  onSelectLanguage?: (id: string) => void;
   onSearchChange: (query: string) => void;
   onAddToPlaylistTargetChange: (playlistId: string) => void;
   onCreatePlaylist: (name: string) => void;
@@ -165,13 +173,15 @@ onEnded: () => void;
   onUploadAvatar: (file: File) => Promise<{ message: string; user: SessionUser } | undefined>;
   themeMode: ThemeMode;
   onThemeToggle: () => void;
+  notifications?: { id: string; message: string; kind: 'info' | 'success' | 'warning' }[];
+  onDismissNotification?: (id: string) => void;
 }) {
   const t = (key: string) => getTranslation(session.user.language, key);
   const [openMenuTrackId, setOpenMenuTrackId] = useState('');
   const [menuPlaylistIdByTrackId, setMenuPlaylistIdByTrackId] = useState<
     Record<string, string>
   >({});
-  const [activeGridTab, setActiveGridTab] = useState<'albums' | 'artists' | 'singers' | 'lyricists'>('albums');
+  const [activeGridTab, setActiveGridTab] = useState<'albums' | 'artists' | 'singers' | 'lyricists' | 'languages'>('albums');
   const [trackView, setTrackView] = useState<'grid' | 'list'>('grid');
   const [menuDirection, setMenuDirection] = useState<'down' | 'up'>('down');
   const [menuAlign, setMenuAlign] = useState<'left' | 'right'>('right');
@@ -188,6 +198,19 @@ onEnded: () => void;
   const [passwordMessage, setPasswordMessage] = useState('');
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [showDownloads, setShowDownloads] = useState(false);
+  const [downloadedTrackIds, setDownloadedTrackIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('sonik-downloaded-tracks') ?? '[]') as string[]; } catch { return []; }
+  });
+
+  function markDownloaded(trackId: string) {
+    setDownloadedTrackIds((prev) => {
+      const updated = prev.includes(trackId) ? prev : [...prev, trackId];
+      localStorage.setItem('sonik-downloaded-tracks', JSON.stringify(updated));
+      return updated;
+    });
+  }
   const [searchFocused, setSearchFocused] = useState(false);
 const [appBannerOpen, setAppBannerOpen] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -252,6 +275,17 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
     };
     window.addEventListener('beforeinstallprompt', handler as EventListener);
     return () => window.removeEventListener('beforeinstallprompt', handler as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
   }, []);
   const prompt = usePrompt();
   const audioSource = selectedTrack.streamUrl
@@ -329,6 +363,17 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
 
   return (
     <div className="player-shell">
+      {notifications.length > 0 && (
+        <div className="notification-toast-stack">
+          {notifications.map((n) => (
+            <div key={n.id} className={`notification-toast notification-toast--${n.kind}`}>
+              <span className="notification-toast-message">{n.message}</span>
+              <button className="notification-toast-dismiss" onClick={() => onDismissNotification?.(n.id)}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <audio
         ref={audioRef}
         loop={repeatMode === 'one'}
@@ -338,6 +383,29 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
         onTimeUpdate={onTimeUpdate}
         preload="metadata"
       />
+
+      {!isOnline && (
+        <div className="offline-banner">
+          <span className="offline-banner-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="1" y1="1" x2="23" y2="23" />
+              <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+              <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+              <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
+              <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+              <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+              <line x1="12" y1="20" x2="12.01" y2="20" />
+            </svg>
+          </span>
+          <span className="offline-banner-text">You're offline — playback may be limited</span>
+          <button
+            className="offline-banner-btn"
+            onClick={() => setShowDownloads(true)}
+          >
+            View Downloads
+          </button>
+        </div>
+      )}
 
       <header className="sonik-header">
         <a className="brand-lockup" href="/" aria-label="Sonik home">
@@ -521,7 +589,7 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
         <nav className="nav-stack">
           <button
             className={`nav-item ${selectedPlaylistId === 'library' ? 'is-active' : ''}`}
-            onClick={() => onSelectPlaylist('library')}
+            onClick={() => { onSelectPlaylist('library'); setShowDownloads(false); }}
             type="button"
           >
             <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -531,7 +599,7 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
           </button>
           <button
             className={`nav-item ${selectedPlaylistId === 'favorites' ? 'is-active' : ''}`}
-            onClick={() => onSelectPlaylist('favorites')}
+            onClick={() => { onSelectPlaylist('favorites'); setShowDownloads(false); }}
             type="button"
           >
             <svg className="nav-icon" viewBox="0 0 24 24" fill={selectedPlaylistId === 'favorites' ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -541,7 +609,7 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
           </button>
           <button
             className={`nav-item ${selectedPlaylistId === 'recent' ? 'is-active' : ''}`}
-            onClick={() => onSelectPlaylist('recent')}
+            onClick={() => { onSelectPlaylist('recent'); setShowDownloads(false); }}
             type="button"
           >
             <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -549,6 +617,18 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
             </svg>
             {t('recent')}
           </button>
+          {!isOnline && (
+            <button
+              className={`nav-item${showDownloads ? ' is-active' : ''}`}
+              onClick={() => setShowDownloads(true)}
+              type="button"
+            >
+              <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Downloads
+            </button>
+          )}
         </nav>
 
         <section className="crate-panel">
@@ -636,7 +716,38 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
       </aside>
 
       <main className="music-main">
-        <div className={`app-accordion-body${appBannerOpen ? ' is-open' : ''}`}>
+        {showDownloads && (() => {
+          const dlTracks = libraryTracks.filter((t) => downloadedTrackIds.includes(t.id));
+          return (
+            <section className="content-section downloads-main-section">
+              <div className="downloads-main-header">
+                <h2 className="downloads-main-title">Downloads</h2>
+                <p className="downloads-main-desc">Tracks saved to your device for offline listening.</p>
+              </div>
+              {dlTracks.length === 0 ? (
+                <div className="downloads-empty">
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  <p>No downloads yet. Use ••• on any track to download it.</p>
+                </div>
+              ) : (
+                <div className="downloads-track-list">
+                  {dlTracks.map((track) => (
+                    <div key={`dl-${track.id}`} className="downloads-track-row">
+                      <div className="downloads-track-info">
+                        <span className="downloads-track-title">{track.title}</span>
+                        <span className="downloads-track-sub">{track.artist} · {track.album}</span>
+                      </div>
+                      <ActionIcon name="check" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })()}
+        {!showDownloads && <><div className={`app-accordion-body${appBannerOpen ? ' is-open' : ''}`}>
               <div className="app-download-card">
                 <div className="app-download-icon" aria-hidden="true">
                   <svg viewBox="0 0 34 27" width="28" height="28" fill="none">
@@ -792,6 +903,16 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
                 <span className="tab-count">{lyricists.length}</span>
               </button>
             )}
+            {languages && languages.length > 0 && (
+              <button
+                className={`metadata-tab-btn ${activeGridTab === 'languages' ? 'is-active' : ''}`}
+                onClick={() => setActiveGridTab('languages')}
+                type="button"
+              >
+                Languages
+                <span className="tab-count">{languages.length}</span>
+              </button>
+            )}
           </div>
 
           <div className="metadata-tab-content fade-in-up" key={activeGridTab}>
@@ -922,6 +1043,37 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
                       <p>
                         {lyricist.trackCount}{' '}
                         {lyricist.trackCount === 1 ? 'track' : 'tracks'}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {activeGridTab === 'languages' && languages && languages.length > 0 && (
+              <div className="mix-grid">
+                {languages.map((lang) => {
+                  const isActive = selectedPlaylistId === `language:${lang.id}`;
+                  const sampleTrack = lang.tracks[0];
+                  return (
+                    <button
+                      aria-pressed={isActive}
+                      className={`mix-card${isActive ? ' is-active' : ''}`}
+                      key={lang.id}
+                      onClick={() => onSelectLanguage?.(lang.id)}
+                      type="button"
+                    >
+                      <TrackArtwork
+                        track={{
+                          title: lang.name,
+                          coverClass: sampleTrack?.coverClass ?? 'cover-velvet',
+                          coverUrl: sampleTrack?.coverUrl ?? null,
+                        }}
+                      />
+                      <h3>{lang.name}</h3>
+                      <p>
+                        {lang.trackCount}{' '}
+                        {lang.trackCount === 1 ? 'track' : 'tracks'}
                       </p>
                     </button>
                   );
@@ -1180,6 +1332,22 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
                           Save
                         </button>
                       </div>
+                      <a
+                        className={`track-menu-download-btn${downloadedTrackIds.includes(track.id) ? ' is-downloaded' : ''}`}
+                        href={track.streamUrl ? `${apiBaseUrl}${track.streamUrl}` : '#'}
+                        download={`${track.title} - ${track.artist}.ogg`}
+                        onClick={(e) => {
+                          if (!track.streamUrl) { e.preventDefault(); return; }
+                          markDownloaded(track.id);
+                          setOpenMenuTrackId('');
+                        }}
+                      >
+                        {downloadedTrackIds.includes(track.id)
+                          ? <ActionIcon name="check" />
+                          : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        }
+                        {downloadedTrackIds.includes(track.id) ? 'Downloaded' : 'Download'}
+                      </a>
                     </div>
                   ) : null}
                 </div>
@@ -1388,6 +1556,22 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
                               Save
                             </button>
                           </div>
+                          <a
+                            className={`track-menu-download-btn${downloadedTrackIds.includes(track.id) ? ' is-downloaded' : ''}`}
+                            href={track.streamUrl ? `${apiBaseUrl}${track.streamUrl}` : '#'}
+                            download={`${track.title} - ${track.artist}.ogg`}
+                            onClick={(e) => {
+                              if (!track.streamUrl) { e.preventDefault(); return; }
+                              markDownloaded(track.id);
+                              setOpenMenuTrackId('');
+                            }}
+                          >
+                            {downloadedTrackIds.includes(track.id)
+                              ? <ActionIcon name="check" />
+                              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            }
+                            {downloadedTrackIds.includes(track.id) ? 'Downloaded' : 'Download'}
+                          </a>
                         </div>
                       ) : null}
                     </div>
@@ -1401,6 +1585,7 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
             </div>
           )}
         </section>
+        </>}
       </main>
 
       {showDownloadModal && (
@@ -2011,6 +2196,22 @@ const [appBannerOpen, setAppBannerOpen] = useState(false);
                           Save
                         </button>
                       </div>
+                      <a
+                        className={`track-menu-download-btn${downloadedTrackIds.includes(track.id) ? ' is-downloaded' : ''}`}
+                        href={track.streamUrl ? `${apiBaseUrl}${track.streamUrl}` : '#'}
+                        download={`${track.title} - ${track.artist}.ogg`}
+                        onClick={(e) => {
+                          if (!track.streamUrl) { e.preventDefault(); return; }
+                          markDownloaded(track.id);
+                          setOpenMenuTrackId('');
+                        }}
+                      >
+                        {downloadedTrackIds.includes(track.id)
+                          ? <ActionIcon name="check" />
+                          : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        }
+                        {downloadedTrackIds.includes(track.id) ? 'Downloaded' : 'Download'}
+                      </a>
                     </div>
                   ) : null}
                 </div>

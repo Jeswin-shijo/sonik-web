@@ -6,6 +6,7 @@ import type { MusicTrack, SessionState, ThemeMode } from '../types';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { TrackArtwork } from '../components/TrackArtwork';
 import { useConfirm } from '../components/ConfirmDialog';
+import { trackLanguageOptions } from '../helpers/languages';
 
 const personPalettes = [
   ['#f05a8a', '#6f38d8'],
@@ -32,6 +33,7 @@ type UploadForm = {
   album: string;
   genre: string;
   mood: string;
+  language: string;
   audioFileName?: string;
   coverImageName?: string;
 };
@@ -44,6 +46,7 @@ const emptyForm: UploadForm = {
   album: '',
   genre: '',
   mood: '',
+  language: '',
   audioFileName: '',
   coverImageName: '',
 };
@@ -245,6 +248,7 @@ export function AdminScreen({
         album: item.album || '',
         genre: item.genre || '',
         mood: item.mood || '',
+        language: (item as any).language || '',
         singerId: item.singerId || '',
         artistId: item.artistId || '',
         lyricistId: item.lyricistId || '',
@@ -350,6 +354,7 @@ export function AdminScreen({
             album: row.Album || '',
             genre: row.Genre || '',
             mood: row.Mood || '',
+            language: row.Language || '',
             singerId: singers.find(s => s.name.toLowerCase() === singerName.toLowerCase())?.id?.toString() || '',
             artistId: artists.find(a => a.name.toLowerCase() === artistName.toLowerCase())?.id?.toString() || '',
             lyricistId: lyricists.find(l => l.name.toLowerCase() === lyricistName.toLowerCase())?.id?.toString() || '',
@@ -389,6 +394,7 @@ export function AdminScreen({
     if (form.album.trim()) payload.append('album', form.album.trim());
     if (form.genre.trim()) payload.append('genre', form.genre.trim());
     if (form.mood.trim()) payload.append('mood', form.mood.trim());
+    if (form.language.trim()) payload.append('language', form.language.trim());
     if (form.audioFileName?.trim()) payload.append('audioFileName', form.audioFileName.trim());
     if (form.coverImageName?.trim()) payload.append('coverImageName', form.coverImageName.trim());
 
@@ -626,7 +632,7 @@ export function AdminScreen({
                       setEditingDraftId(draft.id);
                       setErrorMessage('');
                       setNoticeMessage('');
-                      setForm({ title: draft.title, artistId: draft.artistId, singerId: draft.singerId, lyricistId: draft.lyricistId, album: draft.album, genre: draft.genre, mood: draft.mood, audioFileName: draft.audioFileName, coverImageName: draft.coverImageName });
+                      setForm({ title: draft.title, artistId: draft.artistId, singerId: draft.singerId, lyricistId: draft.lyricistId, album: draft.album, genre: draft.genre, mood: draft.mood, language: draft.language || '', audioFileName: draft.audioFileName, coverImageName: draft.coverImageName });
                     }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                     </button>
@@ -691,6 +697,15 @@ export function AdminScreen({
               <label>
                 Mood
                 <input value={form.mood} onChange={(e) => setForm(c => ({ ...c, mood: e.target.value }))} placeholder="Local" />
+              </label>
+              <label>
+                Language
+                <select value={form.language} onChange={(e) => setForm(c => ({ ...c, language: e.target.value }))}>
+                  <option value="">Select Language…</option>
+                  {trackLanguageOptions.map(opt => (
+                    <option key={opt.code} value={opt.label}>{opt.label}</option>
+                  ))}
+                </select>
               </label>
             </div>
 

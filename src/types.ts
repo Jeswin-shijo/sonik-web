@@ -76,6 +76,7 @@ export type MusicTrack = {
   singerId?: string;
   lyricistId?: string;
   artistId?: string;
+  language?: string;
 };
 
 export type PlaylistSummary = {
@@ -118,6 +119,13 @@ export type AlbumSummary = {
   tracks: MusicTrack[];
 };
 
+export type LanguageSummary = {
+  id: string;
+  name: string;
+  trackCount: number;
+  tracks: MusicTrack[];
+};
+
 export type QueueItemSummary = {
   id: string;
   position: number;
@@ -134,6 +142,10 @@ export type ArtistsResponse = {
 
 export type AlbumsResponse = {
   albums: AlbumSummary[];
+};
+
+export type LanguagesResponse = {
+  languages: LanguageSummary[];
 };
 
 export type PlaylistsResponse = {

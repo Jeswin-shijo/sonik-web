@@ -43,13 +43,13 @@ function AppRoutes() {
     handleGoogleSuccess, handleDeleteAccount, handleUpdateProfile,
     handleChangePassword, handleUploadAvatar,
     audioRef,
-    visibleTracks, favoriteTracks, playlists, artists, albums,
+    visibleTracks, favoriteTracks, playlists, artists, albums, languages,
     singers, lyricists, queueItems, libraryTracks,
     selectedPlaylistId, selectedSourceLabel, addToPlaylistId,
     searchQuery, durationByTrackId,
     selectedTrack, selectedTrackId, progress, currentTime, duration,
     isPlaying, isShuffle, repeatMode, volume,
-    selectTrack, selectPlaylist, selectArtist, selectAlbum, selectSinger, selectLyricist,
+    selectTrack, selectPlaylist, selectArtist, selectAlbum, selectLanguage, selectSinger, selectLyricist,
     selectNextTrack, selectPreviousTrack, togglePlayback, toggleRepeatMode,
     setIsShuffle, setVolume, seekToProgress, syncAudioTime, syncAudioMetadata,
     handleTrackEnded, enqueueTrack, shareTrack,
@@ -57,6 +57,7 @@ function AppRoutes() {
     createPlaylist, toggleFavorite,
     loadLibraryTracks, setLibraryTracks, setTracks,
     setSearchQuery, setAddToPlaylistId,
+    notifications, dismissNotification,
   } = app;
 
   if (isBootstrapping) {
@@ -136,14 +137,17 @@ function AppRoutes() {
                 onOpenAdmin={() => navigate("/admin")}
                 audioRef={audioRef}
                 tracks={visibleTracks}
+                libraryTracks={libraryTracks}
                 favoriteTrackIds={favoriteTracks.map((t) => t.id)}
                 playlists={playlists}
                 artists={artists}
                 albums={albums}
+                languages={languages}
                 singers={singers}
                 lyricists={lyricists}
                 onSelectSinger={selectSinger}
                 onSelectLyricist={selectLyricist}
+                onSelectLanguage={selectLanguage}
                 queueItems={queueItems}
                 selectedPlaylistId={selectedPlaylistId}
                 selectedSourceLabel={selectedSourceLabel}
@@ -192,6 +196,8 @@ function AppRoutes() {
                 onUploadAvatar={handleUploadAvatar}
                 themeMode={themeMode}
                 onThemeToggle={toggleThemeMode}
+                notifications={notifications}
+                onDismissNotification={dismissNotification}
               />
             )
           }
