@@ -39,7 +39,7 @@ function AppRoutes() {
     loginForm, registerForm, resetForm, otpForm, otpStep,
     setLoginForm, setRegisterForm, setResetForm, setOtpForm,
     setErrorMessage, onViewChange, clearFeedback, logout,
-    handleLogin, handleSendOtp, handleVerifyOtpSignup, handleVerifyOtpResetPassword,
+    handleLogin, handleGuestLogin, handleSendOtp, handleVerifyOtpSignup, handleVerifyOtpResetPassword,
     handleGoogleSuccess, handleDeleteAccount, handleUpdateProfile,
     handleChangePassword, handleUploadAvatar,
     audioRef,
@@ -114,6 +114,8 @@ function AppRoutes() {
                 onGoogleError={() =>
                   setErrorMessage("Google sign-in could not be completed.")
                 }
+                onGuestLogin={handleGuestLogin}
+                isSubmitting={isSubmitting}
                 themeMode={themeMode}
                 onThemeToggle={toggleThemeMode}
               />

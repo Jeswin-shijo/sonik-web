@@ -22,7 +22,7 @@ export type ResetForm = {
 };
 
 export type AuthProvider = 'local' | 'google' | 'hybrid';
-export type UserRole = 'user' | 'admin';
+export type UserRole = 'user' | 'admin' | 'guest';
 
 export type SessionUser = {
   id: number;

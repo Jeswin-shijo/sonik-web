@@ -48,6 +48,8 @@ export function AccessScreen({
   onClearFeedback,
   onGoogleSuccess,
   onGoogleError,
+  onGuestLogin,
+  isSubmitting,
   themeMode,
   onThemeToggle,
 }: {
@@ -59,6 +61,8 @@ export function AccessScreen({
   onClearFeedback: () => void;
   onGoogleSuccess: (credentialResponse: CredentialResponse) => void;
   onGoogleError: () => void;
+  onGuestLogin: () => void;
+  isSubmitting: boolean;
   themeMode: ThemeMode;
   onThemeToggle: () => void;
 }) {
@@ -178,20 +182,30 @@ export function AccessScreen({
           </button>
         ) : null}
 
-        {view === 'login' && googleClientId ? (
+        {view === 'login' ? (
           <>
             <div className="divider">
               <span>or</span>
             </div>
-            <div className="google-slot">
-              <GoogleLogin
-                onSuccess={onGoogleSuccess}
-                onError={onGoogleError}
-                theme="filled_black"
-                text="signin_with"
-                shape="pill"
-              />
-            </div>
+            {googleClientId ? (
+              <div className="google-slot">
+                <GoogleLogin
+                  onSuccess={onGoogleSuccess}
+                  onError={onGoogleError}
+                  theme="filled_black"
+                  text="signin_with"
+                  shape="pill"
+                />
+              </div>
+            ) : null}
+            <button
+              className="guest-login-button"
+              disabled={isSubmitting}
+              onClick={onGuestLogin}
+              type="button"
+            >
+              Continue as Guest
+            </button>
           </>
         ) : null}
       </section>
